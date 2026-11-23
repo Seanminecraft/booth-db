@@ -7,12 +7,15 @@ const PORT = +process.argv[2] || 8787, ROOT = path.join(__dirname, '../site');
 const FX = process.env.FIXTURES || path.join(__dirname, '../../test-fixtures');
 const load = f => JSON.parse(fs.readFileSync(path.join(FX, f), 'utf8'));
 const CLIENT = 'dev-client.apps.googleusercontent.com';
+const { fakeJwt, readFake } = require('./fake-jwt');
+// 開發模式假登入：網站送「fake:<sub>」，這裡換成形狀正確的假 JWT；「fake:sub~stale」＝20 分鐘前登入（測試重新登入視窗）
+const devTok = t => { const m = String(t).match(/^fake:(.+)$/); if (!m) return t; const stale = /~stale$/.test(m[1]); return fakeJwt(m[1].replace(/~stale$/, ''), CLIENT, { age: stale ? 1200 : 0 }); };
+const toJwt = b => (b && typeof b.idToken === 'string') ? Object.assign({}, b, { idToken: devTok(b.idToken) }) : b;
 const PUBLIC_RE = /^1[A-Za-z0-9_-]{24,}$/; // 開發模式：fixture 裡標為公開的縮圖都當作公開
 function fetch(url, o) {
   const resp = (code, body, headers) => ({ getResponseCode: () => code, getContentText: () => body || '', getHeaders: () => headers || {} });
-  if (url.startsWith('https://oauth2.googleapis.com/tokeninfo')) { const m = decodeURIComponent(url.split('id_token=')[1]).match(/^fake:(.+)$/); if (!m) return resp(400, '{}');
-    const stale = /~stale$/.test(m[1]), now = Math.floor(Date.now() / 1000); // 「fake:sub~stale」＝20 分鐘前登入（測試重新登入視窗）
-    return resp(200, JSON.stringify({ aud: CLIENT, iss: 'https://accounts.google.com', sub: m[1].replace(/~stale$/, ''), iat: String(stale ? now - 1200 : now), exp: String(now + 3600) })); }
+  if (url.startsWith('https://oauth2.googleapis.com/tokeninfo')) { const pl = readFake(decodeURIComponent(url.split('id_token=')[1])); if (!pl) return resp(400, '{}');
+    return resp(200, JSON.stringify({ aud: pl.aud, iss: pl.iss, sub: pl.sub, iat: String(pl.iat), exp: String(pl.exp) })); }
   if (url.startsWith('https://lh3.googleusercontent.com/d/')) { const id = url.split('/d/')[1].split('=')[0]; return /A{10}/.test(id) ? resp(403, '') : resp(200, '', { 'Content-Type': 'image/jpeg' }); }
   if (url.startsWith('https://safebrowsing.googleapis.com/')) return resp(200, '{}');
   return resp(404, '');
@@ -37,7 +40,7 @@ G.sheet_('認領申請').appendRow(['CLDEV', G.now_(), 'C00968', '心桃魅夢',
 // 開發用帳號 dev-owner-2：已核准管理 加帕利天藍怪預警中心（C02492，只有出展紀錄、主資料庫沒有列；回歸測試用）
 G.sheet_('認領申請').appendRow(['CLDEV2', G.now_(), 'C02492', '加帕利天藍怪預警中心', G.uidOf_('dev-owner-2'), 'SNS 貼文', '', 'JP-DEV002', '開發資料', '核准', G.now_(), '', 'owner', G.now_()]);
 // ===== 站長（開發）：用真實程式路徑初始化、配對兩位站長（dev-admin＝擁有者站長「小編A」、dev-admin-2＝站長「小編B」） =====
-const P = b => JSON.parse(G.doPost({ postData: { contents: JSON.stringify(b) } }).getContent());
+const P = b => JSON.parse(G.doPost({ postData: { contents: JSON.stringify(toJwt(b)) } }).getContent());
 const S_ = sub => P({ action: 'login', idToken: 'fake:' + sub }).session;
 const log = (r, l) => { if (!r.ok) console.log('seed fail', l, r.error); return r; };
 G.menuInitAdmin();
@@ -65,12 +68,12 @@ if (!process.env.NO_SEED) {
   log(P({ action: 'admin.relationDecide', session: A1, a: 'C00004', b: 'C00785', decision: 'unrelated', note: '筆名相同但作品風格不同' }), 'unrelated');
 }
 G.bumpVersion_();
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg' };
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname === '/api') {
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
-      let out; try { out = req.method === 'POST' ? G.doPost({ postData: { contents: body } }) : G.doGet({ parameter: Object.fromEntries(u.searchParams) }); } catch (e) { out = { getContent: () => JSON.stringify({ ok: false, error: String(e) }) }; }
+      let out; try { out = req.method === 'POST' ? G.doPost({ postData: { contents: (() => { try { return JSON.stringify(toJwt(JSON.parse(body))); } catch (e) { return body; } })() } }) : G.doGet({ parameter: Object.fromEntries(u.searchParams) }); } catch (e) { out = { getContent: () => JSON.stringify({ ok: false, error: String(e) }) }; }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(out.getContent());
     }); return;
   }

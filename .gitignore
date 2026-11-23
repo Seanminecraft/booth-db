@@ -3,3 +3,6 @@ test-fixtures/
 *.fixture.json
 tests/ffk19_expected_writes.json
 .DS_Store
+site/data/index.json
+site/data/meta.json
+site/data/reloverlay.json

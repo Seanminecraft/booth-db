@@ -1,14 +1,12 @@
 <!-- 自動產生：請改 site/assets/privacy.js 後執行 node tools/build-privacy-md.js -->
 
-# 隱私權政策（草稿）
+# 隱私權政策
 
 _最後更新: 2026-11-23_
 
-> ⚠ 本政策為草稿，需由站長與工程師依實際營運方式審閱確認；本文件不是法律意見。
-
 ## 1. 我們是誰、這份政策涵蓋什麼
 
-本網站「攤位資料庫」整理同人展攤位的公開資訊（攤名、筆名、SNS 連結、出展紀錄），並讓攤主登入後更正自己的資料。本政策說明網站會收集、使用、保存哪些資料。
+我們是加帕利天藍怪預警中心，本網站為攤位查詢系統後台，亦是攤位資料庫，主要整理同人展攤位的公開資訊（攤名、筆名、SNS 連結、出展紀錄），並讓攤主登入後更正自己的資料。本政策說明網站會收集、使用、保存哪些資料。
 
 ## 2. 我們存什麼、不存什麼
 
@@ -30,7 +28,7 @@ _最後更新: 2026-11-23_
 
 頻率限制計數：存在伺服器快取，最長 24 小時自動消失。
 
-認領與修改申請：作為修改歷史與復原依據保存，直到站方刪除或你要求刪除為止。〔待站長決定：是否設定固定保存期限，例如 2 年〕
+認領與修改申請：作為修改歷史與復原依據保存，直到站方刪除或你要求刪除為止。
 
 ## 5. 刪除與更正
 
@@ -60,7 +58,7 @@ GitHub Pages：託管本網站的靜態檔案。GitHub 可能依其隱私權聲�
 
 ## 9. 聯絡我們
 
-有任何隱私問題或刪除要求，請聯絡：〔聯絡方式：見 site/assets/config.js 的 CONTACT，待站長確認〕
+有任何隱私問題或刪除要求，請聯絡：加帕利天藍怪預警中心 粉專 https://www.facebook.com/JapariWeatherBureau
 
 ## 10. 政策變更
 
@@ -68,15 +66,13 @@ GitHub Pages：託管本網站的靜態檔案。GitHub 可能依其隱私權聲�
 
 ---
 
-# Privacy Policy (draft)
+# Privacy Policy
 
 _Last updated: 2026-11-23_
 
-> ⚠ This is a draft. It must be reviewed by the site owner and engineer against how the site is actually run. It is not legal advice.
-
 ## 1. Who we are and what this covers
 
-"Booth Database" compiles public information about doujin-event booths (booth names, pen names, SNS links, exhibition history) and lets booth owners sign in to correct their own entries. This policy explains what the site collects, uses and keeps.
+We are 加帕利天藍怪預警中心 (Japari Weather Bureau). This site is the back end of our booth lookup system and is also the booth database itself. It mainly compiles public information about doujin-event booths (booth names, pen names, SNS links, exhibition history) and lets booth owners sign in to correct their own entries. This policy explains what the site collects, uses and keeps.
 
 ## 2. What we store and what we do not
 
@@ -98,7 +94,7 @@ Sign-in session: up to 12 hours, kept in your browser tab and gone when you clos
 
 Rate-limit counters: in server cache, expire automatically within 24 hours.
 
-Claims and edit requests: kept as edit history and for reverting, until the site deletes them or you ask us to. [Decision pending: set a fixed retention period, e.g. 2 years]
+Claims and edit requests: kept as edit history and for reverting, until the site deletes them or you ask us to.
 
 ## 5. Deletion and correction
 
@@ -128,7 +124,7 @@ Admins also sign in with Google; only their HMAC code and a self-chosen nickname
 
 ## 9. Contact
 
-For privacy questions or deletion requests: 〔聯絡方式：見 site/assets/config.js 的 CONTACT，待站長確認〕
+For privacy questions or deletion requests: 加帕利天藍怪預警中心 粉專 https://www.facebook.com/JapariWeatherBureau
 
 ## 10. Changes
 
@@ -136,15 +132,13 @@ If this policy changes we update the "last updated" date on this page and announ
 
 ---
 
-# プライバシーポリシー（草案）
+# プライバシーポリシー
 
 _最終更新日: 2026-11-23_
 
-> ⚠ 本ポリシーは草案です。実際の運営方法に合わせてサイト管理者とエンジニアが確認する必要があります。法的助言ではありません。
-
 ## 1. 運営者と対象範囲
 
-「ブースデータベース」は同人イベントのスペースに関する公開情報（サークル名、ペンネーム、SNS リンク、出展履歴）を整理し、出展者がログインして自分の情報を修正できるサイトです。本ポリシーは、収集・利用・保存する情報について説明します。
+私たちは加帕利天藍怪預警中心（ジャパリ天藍怪予報センター）です。本サイトはブース検索システムのバックエンドであり、ブースデータベースそのものでもあります。主に同人イベントのスペースに関する公開情報（サークル名、ペンネーム、SNS リンク、出展履歴）を整理し、出展者がログインして自分の情報を修正できるサイトです。本ポリシーは、収集・利用・保存する情報について説明します。
 
 ## 2. 保存する情報・保存しない情報
 
@@ -166,7 +160,7 @@ _最終更新日: 2026-11-23_
 
 回数制限のカウンター：サーバーのキャッシュに保存され、24 時間以内に自動で消えます。
 
-申請と修正申請：修正履歴および取り消しの根拠として、サイトが削除するか、あなたが削除を求めるまで保存します。〔管理者が決定予定：例えば 2 年などの保存期限を設けるか〕
+申請と修正申請：修正履歴および取り消しの根拠として、サイトが削除するか、あなたが削除を求めるまで保存します。
 
 ## 5. 削除と訂正
 
@@ -196,7 +190,7 @@ Google ログインを使うと、Google が accounts.google.com に独自の Co
 
 ## 9. お問い合わせ
 
-プライバシーに関するご質問や削除のご依頼：〔聯絡方式：見 site/assets/config.js 的 CONTACT，待站長確認〕
+プライバシーに関するご質問や削除のご依頼：加帕利天藍怪預警中心 粉專 https://www.facebook.com/JapariWeatherBureau
 
 ## 10. 変更
 

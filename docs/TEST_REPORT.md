@@ -1,5 +1,80 @@
 # 測試報告 — 2026-11-23（Asia/Taipei）
 
+## Phase 4（安全稽核修正、速度、使用說明）— 2026-11-23 22:35（Asia/Taipei）
+
+### P4-A. 端到端測試（Node 模擬 Apps Script，真實 code.gs `2026-11-23-p4`）
+`node tests/run-tests.js` — **211 passed, 0 failed**（phase 3 的 152 項＋phase 4 的 59 項）。測試用的假登入改成形狀正確的 JWT（`tests/fake-jwt.js`），因為伺服器現在會先預檢 JWT。
+
+Phase 4 新增（稽核項目 [1]–[9]、[其他]、[營運]）：
+
+```
+PASS P4 準備：2 位站長
+PASS [1] validateField_ 拒絕 twitter(1)
+PASS [1] validateField_ 拒絕「販售資訊 」（多空白）
+PASS [1] validateField_ 拒絕全形括號 TWITTER（1）
+PASS [1] 場次填寫拒絕變形欄名「twitter(1)」（即時制）  — 此欄不可由攤主填寫：twitter(1)
+PASS [1] 場次填寫拒絕變形欄名「TWITTER(1)」（即時制）  — 此欄不可由攤主填寫：TWITTER(1)
+PASS [1] 場次填寫拒絕變形欄名「twitter (1)」（即時制）  — 此欄不可由攤主填寫：twitter (1)
+PASS [1] 場次填寫拒絕變形欄名「販售資訊 」（即時制）  — 此欄不可由攤主填寫：販售資訊 
+PASS [1] 場次填寫拒絕變形欄名「 販售資訊」（即時制）  — 此欄不可由攤主填寫： 販售資訊
+PASS [1] 場次填寫拒絕變形欄名「ｉｇ」（即時制）  — 此欄不可由攤主填寫：ｉｇ
+PASS [1] 變形欄名完全沒有寫入整理表
+PASS [1] 正式欄名仍套用白名單  — TWITTER (1)：TWITTER (1) 只接受 x.com / twitter.com 的網址
+PASS [1] 主資料修改拒絕變形欄名
+PASS [1] 站長直接修改主資料拒絕變形欄名
+PASS [1] 站長修改場次拒絕變形欄名
+PASS [1] 預覽也標示變形欄名不可用
+PASS [1] 套用前再驗證：舊格式申請列不會寫入  — 驗證失敗：不可修改的欄位：twitter(1)
+PASS [1] 套用前再驗證：白名單不符的核准列不會寫入
+PASS [2] 反斜線網址被拒（FB 白名單）
+PASS [2] hostOf_ 對反斜線回傳空值
+PASS [2] 其他不合法字元被拒（空白、<、"、`、{）
+PASS [2] 非 ASCII 網域被拒、路徑中文自動編碼
+PASS [2] 主機名稱格式（.. 開頭結尾點、底線）被拒
+PASS [2] 合法網址照常通過
+PASS [3] 驗證失敗的值不寫入主資料庫
+PASS [3] 取代既有身分欄位（TWITTER）改為待審核，不直接覆蓋
+PASS [3] 新攤位：合法欄位寫入、非法欄位留空
+PASS [3] 沒通過的都變成「待審核」申請  — {"filled":0,"conflicts":1,"appended":1,"pending":3}
+PASS [3] 即使站長按核准，驗證失敗的值仍不會寫入
+PASS [4] 個人頁網址不能當驗證貼文  — 驗證連結必須是「一則貼文」的網址（例如 https://x.com/帳號/status/數字），不能是個人頁
+PASS [4] 貼文網址＋帳號相符 → 標示「帳號相符，仍需確認貼文含驗證碼」  — ｜帳號相符，仍需確認貼文含驗證碼
+PASS [4] 貼文網址格式（X/FB/IG/Plurk/Bluesky/Threads）
+PASS [4] 帳號鍵：不同 Bluesky／FB profile.php 帳號不會被當成同一人
+PASS [5] 場次代碼格式檢查
+PASS [5] 場次出展紀錄每個字串都不會變成公式  — '+正常社團|'=HYPERLINK("https://evil.example","FF49") / '=IMPORTXML("https://evil.example","//a")|'=HYPERLINK("https://evil.example","FF49") / '@提及社團|'=HYPERLINK("https://evil.example","FF49")
+PASS [5] 整理表的攤名、攤位編號也是純文字
+PASS [6] 非 JWT、aud／exp／iss 不符：不呼叫 tokeninfo  — 0 次
+PASS [6] 失敗達上限後不再呼叫 tokeninfo  — 3 次
+PASS [6] 上限期間登入回覆暫停訊息
+PASS [6] 時段過後正常登入
+PASS [7] 官方網站、Linktree、FB (2)、其他連結 取代＝敏感
+PASS [7] 填入原本空白的欄位不算敏感（站長決策）
+PASS [7] IDENTITY_FIELDS 涵蓋所有網址欄
+PASS [7] 兩位站長時，單一站長取代官方網站要等第二位確認  — {"applied":0,"waiting":1,"failed":[],"batch":"B261123223222-60cc","items":[{"id":"AD261123223222-7158","field":"官方網站","status":"待第二位確認"}]}
+PASS [8] 一般站長不能在網站匯入／預覽  — 只有擁有者站長可以在網站上新增場次或匯入名單（其他站長請請擁有者操作）
+PASS [8] 允許資料夾以外的試算表被拒，且不回傳內容  — 這份試算表不在允許的雲端硬碟資料夾內（或無法存取）。請把檔案移到整理表所在的資料夾，或請擁有者設定 ALLOWED_FOLDER_IDS
+PASS [8] 新增場次也檢查資料夾
+PASS [8] 不存在／沒權限的檔案也被拒
+PASS [8] 允許資料夾內的檔案：擁有者站長可預覽  — 1
+PASS [8] ALLOWED_FOLDER_IDS 可指定其他資料夾  — ok
+PASS [8] 指定後原資料夾就不再允許
+PASS [9] 取不到擁有者：不能初始化、不能新增站長
+PASS [9] 取不到目前使用者：拒絕
+PASS [其他] HTML 標籤寫法一律拒絕（含 <b onmouseover>）
+PASS [其他] 一般文字中的 < > 可以用（例如 <3、< 新刊 >）
+PASS [其他] 攤主頁只回傳白名單欄位（新增的私人欄位不會外洩）
+PASS [其他] index 也不含私人欄位
+PASS [其他] 場次頁只回傳可填欄位（正式欄名）
+PASS [營運] 後台 summary 回傳試算表編輯者人數（設定頁警告用）
+PASS 自我檢查全部通過
+```
+
+### P4-B. 介面測試（puppeteer，本機 dev-server，每個腳本前重新啟動）
+- `tests/ui-p4-help.js`（新）：25 PASS — 使用說明三語＋站長版、`?` 說明鈕、截圖存在、vis-network 延後載入、骨架畫面、重新登入、編輯者警告、認領標示。`--shots` 會重新產生 `site/help/*.jpg`（27 張）。
+- `tests/ui-p3-admin.js`：14 PASS；`tests/ui-p3-reauth.js`：6 PASS；`tests/ui-regression-c02492.js`：6 PASS（第一次跑時 headless Chrome 截圖逾時，單獨重跑全部通過）。
+- 靜態快照：`API_URL=http://localhost:8787/api node tools/snapshot.js site/data` 產生 `index.json`（6275 位攤主）、`meta.json`、`reloverlay.json`；網頁改讀 `/data/index.json`，只向 API 要 `meta` 版本號，沒有再要 `index`。
+
 ## Phase 3（多位站長後台、站長直接編輯、關聯判定／合併、首頁關聯圖、主題）— 2026-11-23 20:40（Asia/Taipei）
 
 ### P3-A. 端到端測試（Node 模擬 Apps Script，真實 code.gs `2026-11-23-p3`）

@@ -5,7 +5,7 @@ window.viewAdmin = function (C, parts) {
   var h = C.h, add = C.add, clear = C.clear, app = C.app, tab = parts[0] || 'queue';
   C.setNav('admin'); C.loading();
   if (!C.S.session) { clear(app); add(app, h('div', { class: 'card note warn', text: '請先登入（站長 Google 帳號）：到「我的攤位」登入後再回來。' })); return; }
-  var TABS = [['queue', '📥 待審核'], ['events', '🗓 整理中場次'], ['relations', '🔗 關聯判定'], ['owners', '⛔ 停權／鎖定'], ['audit', '🧾 稽核紀錄'], ['settings', '⚙️ 站長與安全']];
+  var TABS = [['queue', '📥 待審核'], ['events', '🗓 整理中場次'], ['relations', '🔗 關聯判定'], ['owners', '⛔ 停權／鎖定'], ['audit', '🧾 稽核紀錄'], ['settings', '⚙️ 站長與安全'], ['help', '📘 使用說明']];
   /** 呼叫站長 API；伺服器要求重新登入（REAUTH）時跳出 Google 登入，完成後自動重試一次。 */
   function call(body) {
     return C.apiPost(body).catch(function (e) {
@@ -20,7 +20,10 @@ window.viewAdmin = function (C, parts) {
       h('div', { class: 'muted', style: 'padding:10px 12px 0;font-size:12px' }, sum.twoAdmin ? '站長 ' + sum.admins.length + ' 位：身分欄位需第二位站長確認' : '目前只有 1 位站長'));
     var main = h('div'); add(app, h('div', { class: 'adm' }, side, main));
     if (sum.needsMySecond) add(main, h('div', { class: 'card note warn' }, '🔐 有 ', h('b', { text: sum.needsMySecond }), ' 筆身分欄位等你做第二位確認（在「待審核」最上面）。'));
-    ({ queue: queue, events: events, relations: relations, owners: ownersTab, audit: audit, settings: settings }[tab] || queue)(main, sum);
+    var HID = { queue: 'queue', events: 'event', relations: 'merge', owners: 'suspend', audit: 'revert', settings: 'editors' }[tab];
+    if (HID) add(main, h('div', { class: 'muted', style: 'text-align:right;margin:-4px 0 8px;font-size:13px' }, h('a', { href: '#/admin/help/' + HID, text: '這一頁怎麼用' }), ' ', window.BOOTH_HELP.q(HID, true)));
+    if (sum.sheetEditors > 1 && tab !== 'settings') add(main, h('div', { class: 'card note warn' }, '⚠ 試算表目前有 ', h('b', { text: sum.sheetEditors }), ' 位編輯者。只在網站審核的站長不要給試算表編輯權（編輯者可以看到密鑰、改程式）。', h('a', { href: '#/admin/settings', text: '查看' })));
+    ({ queue: queue, events: events, relations: relations, owners: ownersTab, audit: audit, settings: settings, help: helpTab }[tab] || queue)(main, sum);
   }).catch(function (e) {
     clear(app); add(app, h('div', { class: 'card note bad' }, h('b', { text: '無法進入站長後台' }), h('div', { text: e.message }),
       h('p', { class: 'muted', text: '若你是站長：到「我的攤位」按「取得站長配對碼」，再請試算表擁有者在選單「👑 新增站長帳號」輸入。' })));
@@ -71,7 +74,7 @@ window.viewAdmin = function (C, parts) {
           h('div', { class: 'qh' }, cb(c.id, false), h('span', { class: 'tag act', text: '認領' }), h('a', { class: 'nm', href: '#/o/' + c.ownerId, text: c.ownerName }), h('span', { class: 'muted', text: c.ownerId + '・申請者 ' + c.who + '・' + c.at }),
             c.competing ? h('span', { class: 'flag bad', text: '⚠ 同一攤主有 ' + c.competing + ' 筆認領' }) : null),
           h('div', { class: 'kv', style: 'margin-top:8px' }, h('div', { text: '驗證方式' }), h('div', { text: c.method }), h('div', { text: '驗證碼' }), h('div', null, h('span', { class: 'code', style: 'font-size:14px;padding:2px 8px', text: c.code })),
-            h('div', { text: '驗證貼文' }), h('div', null, c.proof ? linkPreview(c.proof, [c.match ? ['ok', '✓ 貼文帳號與資料庫 SNS 相符（twitter.com＝x.com）'] : ['bad', '✗ 貼文帳號不在此攤主的 SNS 內']]) : h('span', { class: 'muted', text: '（私訊，需人工確認）' })),
+            h('div', { text: '驗證貼文' }), h('div', null, c.proof ? linkPreview(c.proof, [c.match ? ['ok', '✓ 帳號相符，仍需確認貼文含驗證碼'] : ['bad', '✗ 貼文帳號不在此攤主的 SNS 內']]) : h('span', { class: 'muted', text: '（私訊，需人工確認）' })),
             h('div', { text: '資料庫既有 SNS' }), h('div', { class: 'tags', style: 'margin:0' }, c.known.length ? c.known.map(function (k) { return h('span', { class: 'tag', text: k }); }) : h('span', { class: 'muted', text: '（無）' })),
             c.note ? h('div', { text: '說明' }) : null, c.note ? h('div', { text: c.note }) : null),
           h('div', { class: 'qb' }, h('button', { class: 'btn ok', onclick: function () { decide([c.id], 'approve'); }, text: '✅ 核准' }), h('button', { class: 'btn no', onclick: function () { decide([c.id], 'reject'); }, text: '✖ 拒絕' }),
@@ -104,7 +107,7 @@ window.viewAdmin = function (C, parts) {
   }
 
   /* ---- 整理中場次 ---- */
-  function events(main) {
+  function events(main, sum) {
     call({ action: 'admin.events' }).then(function (d) {
       add(main, h('div', { class: 'card' }, h('div', { class: 'ghead' }, h('h3', { style: 'margin:0', text: '場次填寫模式' }),
         h('div', null, h('button', { class: 'pill' + (d.mode === 'queue' ? ' on' : ''), onclick: function () { setMode('queue'); }, text: '🛡 審核制（預設）' }), h('button', { class: 'pill' + (d.mode === 'live' ? ' on' : ''), onclick: function () { if (confirm('切換為即時制？已核准攤主的低風險填寫會立即寫入整理表（可復原）。')) setMode('live'); }, text: '⚡ 即時制' }))),
@@ -118,12 +121,13 @@ window.viewAdmin = function (C, parts) {
           e.error ? h('div', { class: 'note bad', text: e.error }) : null,
           h('div', { class: 'qb' }, h('a', { class: 'pill', href: '#/events/' + encodeURIComponent(e.code), text: '🛠 到場次頁直接修改' }),
             h('button', { class: 'pill', onclick: function () { var pol = confirm('衝突時以「場次整理表」為準？\n確定＝場次為準（與 PF45 相同）；取消＝保留主資料庫、衝突送審核') ? 'event_wins' : 'db_wins';
-              if (!confirm('將把 ' + e.code + ' 併入「新攤位資料庫」（全部記錄、整批可復原）。繼續？')) return; call({ action: 'admin.mergeEvent', code: e.code, policy: pol }).then(function (s) { C.toast('補空白 ' + s.filled + '、衝突 ' + s.conflicts + '、新增列 ' + s.appended); }).catch(function (x) { C.toast(x.message); }); }, text: '📤 併入主資料庫…' }),
+              if (!confirm('將把 ' + e.code + ' 併入「新攤位資料庫」（全部記錄、整批可復原）。繼續？')) return; call({ action: 'admin.mergeEvent', code: e.code, policy: pol }).then(function (s) { C.toast('補空白 ' + s.filled + '、衝突 ' + s.conflicts + '、新增列 ' + s.appended + (s.pending ? '、轉待審核 ' + s.pending : '')); }).catch(function (x) { C.toast(x.message); }); }, text: '📤 併入主資料庫…' }),
             h('button', { class: 'pill', onclick: function () { if (confirm('把 ' + e.code + ' 移出整理中清單？（不刪任何檔案）')) call({ action: 'admin.eventRemove', code: e.code }).then(function () { C.route(); }); }, text: '🏁 結束整理（移出清單）' })));
       })));
       var code = h('input', { class: 'in', placeholder: '代碼（例 FF48）' }), name = h('input', { class: 'in', placeholder: '名稱' }), start = h('input', { class: 'in', type: 'date' }), url = h('input', { class: 'in', placeholder: 'https://docs.google.com/spreadsheets/d/…' });
       var src = h('input', { class: 'in', placeholder: '主辦名單試算表網址' }), tpl = h('select', { class: 'in' }, d.active.map(function (e) { return h('option', { value: e.code, text: e.code + ' ' + (e.fileName || '') }); })), pv = h('div');
       add(main, h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', { text: '➕ 新增整理中場次' }),
+        h('div', { class: 'note ' + (sum.role === 'owner' ? '' : 'warn'), text: sum.role === 'owner' ? '只有擁有者站長能新增／匯入；試算表必須在允許的雲端資料夾內（ALLOWED_FOLDER_IDS，未設定時＝整理中場次所在資料夾）。' : '⚠ 新增場次與匯入只有擁有者站長能用，你按了會被伺服器拒絕。' }),
         h('div', { class: 'filters', style: 'grid-template-columns:1fr 2fr 1fr' }, code, name, start),
         h('div', { class: 'note' }, h('b', { text: 'A. 已經有整理表：' }), '貼上試算表網址直接登記（系統會檢查第 1 列 A 欄是「攤位名稱」）',
           h('div', { class: 'filters', style: 'grid-template-columns:3fr 1fr' }, url, h('button', { class: 'btn ghost', onclick: function () { call({ action: 'admin.eventAdd', code: code.value, name: name.value, start: start.value, sheetUrl: url.value }).then(function (r) { C.toast('已登記（' + r.booths + ' 列）'); C.route(); }).catch(function (x) { C.toast(x.message); }); }, text: '檢查並登記' }))),
@@ -223,6 +227,8 @@ window.viewAdmin = function (C, parts) {
     var tm; q.addEventListener('input', function () { clearTimeout(tm); tm = setTimeout(load, 300); }); kind.addEventListener('change', load); from.addEventListener('change', load); load();
   }
 
+  /* ---- 使用說明（站長版，只有中文） ---- */
+  function helpTab(main) { add(main, window.BOOTH_HELP.body(window.ADMIN_HELP, parts[1], '#/admin/help/', '常見問題', '目錄')); }
   /* ---- 站長與安全 ---- */
   function settings(main, sum) {
     var me = sum.admins.filter(function (a) { return a.me; })[0] || {};
@@ -235,7 +241,12 @@ window.viewAdmin = function (C, parts) {
         }))),
       h('p', { class: 'acts', style: 'justify-content:flex-start' }, h('button', { class: 'pill', onclick: function () { ask('修改我的站長暱稱', '例：小編A（稽核紀錄顯示用，不要填真名）', true).then(function (n) { if (n) call({ action: 'admin.adminLabel', label: n }).then(function () { C.route(); }); }); }, text: '✏️ 修改我的暱稱（' + (me.label || '') + '）' })),
       h('div', { class: 'note' }, h('b', { text: '新增站長（配對碼）：' }), '對方在網站登入後到「我的攤位」按「取得站長配對碼」（10 分鐘內有效），試算表擁有者到試算表選單「🗂 攤位資料庫網站 › 👑 新增站長帳號」輸入配對碼。只有試算表擁有者能執行此選單；網站上無法自行升級。'),
-      h('div', { class: 'note warn', text: '多位站長規則：站長 2 位以上時，身分欄位（攤位名稱、取代 FB／X／IG／Pixiv／噗浪／Bluesky 主帳號）需兩位不同站長核准；擁有者站長可填必填理由覆核。兩位站長同時處理同一筆時，伺服器以鎖確保只套用一次，後按的人會看到「已由 X 處理」。' })));
+      h('div', { class: 'note warn', text: '多位站長規則：站長 2 位以上時，身分欄位（攤位名稱，以及取代或清空任何 SNS／網址欄位：FB、X、IG、Pixiv、噗浪、Bluesky、官方網站、賣場、縮圖等；空白欄位第一次填入不算）需兩位不同站長核准；擁有者站長可填必填理由覆核。兩位站長同時處理同一筆時，伺服器以鎖確保只套用一次，後按的人會看到「已由 X 處理」。' })));
+    add(main, h('div', { class: 'card note ' + (sum.sheetEditors > 1 ? 'bad' : 'warn') }, h('b', { text: '⚠ 試算表編輯權＝全部權限' }),
+      h('p', { text: '試算表的編輯者可以打開 Apps Script、看到 HMAC_SECRET 等指令碼屬性、修改程式碼，等於繞過網站所有審核。' }),
+      h('ul', null, h('li', { text: '只在網站上審核的站長，不要加成試算表編輯者。' }), h('li', { text: '試算表只分享給擁有者本人（其他人最多給「檢視者」）。' }),
+        h('li', { text: '網站上的「新增場次」與「匯入整理表」只有擁有者站長能用，且試算表必須在允許的雲端資料夾（指令碼屬性 ALLOWED_FOLDER_IDS；未設定時＝整理中場次所在資料夾）。' })),
+      h('p', null, '目前試算表編輯者：', h('b', { text: sum.sheetEditors < 0 ? '無法讀取' : sum.sheetEditors + ' 位' }), sum.sheetEditors > 1 ? '（⚠ 超過 1 位，請到試算表「共用」檢查）' : '（✅）')));
     add(main, h('div', { class: 'card' }, h('h3', { text: '安全狀態' }), h('div', { class: 'kv' },
       h('div', { text: 'Safe Browsing' }), h('div', { text: sum.safeBrowsing ? '✅ 已設定' : '⚠ 未設定（連結只做網域白名單檢查）' }), h('div', { text: '通知信箱' }), h('div', { text: sum.alertEmail }),
       h('div', { text: '站長登入' }), h('div', { text: '2 小時後需重新登入；批次核准、身分欄位、合併、匯入、停權、移除站長需 10 分鐘內重新登入' + (sum.fresh ? '（目前：10 分鐘內 ✅）' : '（目前：超過 10 分鐘，執行時會要求重新登入）') }),

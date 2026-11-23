@@ -43,7 +43,8 @@ class SS {
   constructor(id, name, sheets) { this.id = id; this.name = name; this.sheets = sheets.map(([n, d, f]) => new Sheet(this, n, d, f)); }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; } getSheets() { return this.sheets; } getId() { return this.id; } getName() { return this.name; } getUrl() { return 'https://docs.google.com/spreadsheets/d/' + this.id; }
   insertSheet(n) { const s = new Sheet(this, n, [[]]); this.sheets.push(s); return s; }
-  getOwner() { return { getEmail: () => 'owner@example.invalid' }; }
+  getOwner() { return this.noOwner ? null : { getEmail: () => 'owner@example.invalid' }; }
+  getEditors() { return [{ getEmail: () => 'owner@example.invalid' }].concat((this.editors || []).map(e => ({ getEmail: () => e }))); }
 }
 function makeEnv(opts) {
   const files = {}; let active = null; const props = Object.assign({}, opts.props || {}); const cache = new Map(); const ui = { prompts: [], alerts: [] };
@@ -75,11 +76,13 @@ function makeEnv(opts) {
     LockService: { getScriptLock: () => ({ waitLock() { }, releaseLock() { } }) },
     MailApp: { sendEmail: (to, subj, body) => mails.push({ to, subj, body }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => 'owner@example.invalid' }), getActiveUser: () => ({ getEmail: () => env.activeUser === undefined ? 'owner@example.invalid' : env.activeUser }) },
-    DriveApp: { getFileById: id => ({ getName: () => files[id].name, getParents: () => { let d = false; return { hasNext: () => !d, next: () => { d = true; return {}; } }; },
-      makeCopy: (name) => { const src = files[id], nid = 'copy_' + crypto.randomBytes(12).toString('hex'); const c = new SS(nid, name, src.sheets.map(s => [s.name, s.data, Object.assign({}, s.formulas)])); files[nid] = c; return { getId: () => nid }; } }), getRootFolder: () => ({}) },
+    // 資料夾：每個檔案有 parent（預設 FOLDER_MAIN）；env.setParent(id, folderId) 可改
+    DriveApp: { getFileById: id => { if (!files[id]) throw new Error('找不到檔案或沒有權限：' + id); return { getName: () => files[id].name, getParents: () => { let d = false; const pid = files[id].parent || 'FOLDER_MAIN'; return { hasNext: () => !d, next: () => { d = true; return { getId: () => pid }; } }; },
+      makeCopy: (name, folder) => { const src = files[id], nid = 'copy_' + crypto.randomBytes(12).toString('hex'); const c = new SS(nid, name, src.sheets.map(s => [s.name, s.data, Object.assign({}, s.formulas)])); c.parent = folder && folder.getId ? folder.getId() : (src.parent || 'FOLDER_MAIN'); files[nid] = c; return { getId: () => nid }; } }; }, getRootFolder: () => ({ getId: () => 'ROOT' }) },
     HtmlService: { createTemplate: html => { const t = { evaluate: () => { t.html = renderTemplate(html, t); return { setWidth() { return this; }, setHeight() { return this; } }; } }; return t; } }
   };
   env.addFile = (id, name, sheets) => { files[id] = new SS(id, name, sheets); return files[id]; };
+  env.setParent = (id, folderId) => { files[id].parent = folderId; };
   env.setActive = id => { active = files[id]; };
   env.files = files; env.props = props; env.cache = cache; env.ui = ui; env.writes = writes; env.mails = mails;
   return env;

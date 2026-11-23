@@ -1,12 +1,11 @@
 // 隱私權政策（中／EN／日）— 單一來源：網站 #/privacy 與 docs/PRIVACY.md 都由這裡產生（node tools/build-privacy-md.js）。
-// ⚠ 草稿：需由站長／工程師依實際營運方式確認，並非法律意見。{CONTACT} 會換成 config 的聯絡方式。
+// 隱私權政策（已由站長審閱）。{CONTACT} 會換成 config 的聯絡方式。
 window.PRIVACY = {
   updated: '2026-11-23',
   zh: {
-    title: '隱私權政策（草稿）',
-    draft: '⚠ 本政策為草稿，需由站長與工程師依實際營運方式審閱確認；本文件不是法律意見。',
+    title: '隱私權政策',
     sections: [
-      ['1. 我們是誰、這份政策涵蓋什麼', ['本網站「攤位資料庫」整理同人展攤位的公開資訊（攤名、筆名、SNS 連結、出展紀錄），並讓攤主登入後更正自己的資料。本政策說明網站會收集、使用、保存哪些資料。']],
+      ['1. 我們是誰、這份政策涵蓋什麼', ['我們是加帕利天藍怪預警中心，本網站為攤位查詢系統後台，亦是攤位資料庫，主要整理同人展攤位的公開資訊（攤名、筆名、SNS 連結、出展紀錄），並讓攤主登入後更正自己的資料。本政策說明網站會收集、使用、保存哪些資料。']],
       ['2. 我們存什麼、不存什麼', [
         '登入時，Google 會把一個「ID token」交給我們的伺服器（Google Apps Script）。伺服器向 Google 確認真偽後，只取出其中的帳號編號（sub），用站方密鑰做 HMAC-SHA256 雜湊，產生一個無法還原的「申請者代號」（u_ 開頭）。token 本身用完即丟。',
         '我們不儲存：你的 email、姓名、大頭貼、Google 帳號編號原文、IP 位址、裝置資訊。',
@@ -17,7 +16,7 @@ window.PRIVACY = {
       ['4. 保存期間', [
         '登入狀態（session）：最長 12 小時，存在你的瀏覽器分頁中，關閉分頁即消失。',
         '頻率限制計數：存在伺服器快取，最長 24 小時自動消失。',
-        '認領與修改申請：作為修改歷史與復原依據保存，直到站方刪除或你要求刪除為止。〔待站長決定：是否設定固定保存期限，例如 2 年〕'
+        '認領與修改申請：作為修改歷史與復原依據保存，直到站方刪除或你要求刪除為止。'
       ]],
       ['5. 刪除與更正', [
         '在「我的攤位」頁按「刪除我的登入紀錄」，系統會立即把你的申請者代號從所有申請紀錄中清除，之後無法再把那些紀錄連回你。已經套用到攤位資料的修改不會因此撤回；如需移除攤位資料，請聯絡我們。',
@@ -38,10 +37,9 @@ window.PRIVACY = {
     ]
   },
   en: {
-    title: 'Privacy Policy (draft)',
-    draft: '⚠ This is a draft. It must be reviewed by the site owner and engineer against how the site is actually run. It is not legal advice.',
+    title: 'Privacy Policy',
     sections: [
-      ['1. Who we are and what this covers', ['"Booth Database" compiles public information about doujin-event booths (booth names, pen names, SNS links, exhibition history) and lets booth owners sign in to correct their own entries. This policy explains what the site collects, uses and keeps.']],
+      ['1. Who we are and what this covers', ['We are 加帕利天藍怪預警中心 (Japari Weather Bureau). This site is the back end of our booth lookup system and is also the booth database itself. It mainly compiles public information about doujin-event booths (booth names, pen names, SNS links, exhibition history) and lets booth owners sign in to correct their own entries. This policy explains what the site collects, uses and keeps.']],
       ['2. What we store and what we do not', [
         'When you sign in, Google gives our server (Google Apps Script) an "ID token". The server verifies it with Google, takes only the account number inside it (sub) and turns it into an irreversible "applicant code" (starting with u_) using HMAC-SHA256 with a site secret. The token itself is discarded.',
         'We do NOT store your email, name, profile picture, raw Google account ID, IP address or device information.',
@@ -52,7 +50,7 @@ window.PRIVACY = {
       ['4. How long', [
         'Sign-in session: up to 12 hours, kept in your browser tab and gone when you close it.',
         'Rate-limit counters: in server cache, expire automatically within 24 hours.',
-        'Claims and edit requests: kept as edit history and for reverting, until the site deletes them or you ask us to. [Decision pending: set a fixed retention period, e.g. 2 years]'
+        'Claims and edit requests: kept as edit history and for reverting, until the site deletes them or you ask us to.'
       ]],
       ['5. Deletion and correction', [
         'On "My booth", press "Delete my sign-in records". Your applicant code is removed from every request immediately, so those records can no longer be linked back to you. Edits already applied to booth data are not undone; contact us if you want booth data removed.',
@@ -73,10 +71,9 @@ window.PRIVACY = {
     ]
   },
   ja: {
-    title: 'プライバシーポリシー（草案）',
-    draft: '⚠ 本ポリシーは草案です。実際の運営方法に合わせてサイト管理者とエンジニアが確認する必要があります。法的助言ではありません。',
+    title: 'プライバシーポリシー',
     sections: [
-      ['1. 運営者と対象範囲', ['「ブースデータベース」は同人イベントのスペースに関する公開情報（サークル名、ペンネーム、SNS リンク、出展履歴）を整理し、出展者がログインして自分の情報を修正できるサイトです。本ポリシーは、収集・利用・保存する情報について説明します。']],
+      ['1. 運営者と対象範囲', ['私たちは加帕利天藍怪預警中心（ジャパリ天藍怪予報センター）です。本サイトはブース検索システムのバックエンドであり、ブースデータベースそのものでもあります。主に同人イベントのスペースに関する公開情報（サークル名、ペンネーム、SNS リンク、出展履歴）を整理し、出展者がログインして自分の情報を修正できるサイトです。本ポリシーは、収集・利用・保存する情報について説明します。']],
       ['2. 保存する情報・保存しない情報', [
         'ログイン時、Google から当サイトのサーバー（Google Apps Script）に「ID トークン」が渡されます。サーバーは Google に真正性を確認したうえで、その中のアカウント番号（sub）のみを取り出し、サイトの秘密鍵による HMAC-SHA256 で元に戻せない「申請者コード」（u_ で始まる）に変換します。トークン自体は破棄します。',
         '保存しないもの：メールアドレス、氏名、プロフィール画像、Google アカウント ID の原文、IP アドレス、端末情報。',
@@ -87,7 +84,7 @@ window.PRIVACY = {
       ['4. 保存期間', [
         'ログイン状態（セッション）：最長 12 時間。ブラウザのタブ内に保存され、タブを閉じると消えます。',
         '回数制限のカウンター：サーバーのキャッシュに保存され、24 時間以内に自動で消えます。',
-        '申請と修正申請：修正履歴および取り消しの根拠として、サイトが削除するか、あなたが削除を求めるまで保存します。〔管理者が決定予定：例えば 2 年などの保存期限を設けるか〕'
+        '申請と修正申請：修正履歴および取り消しの根拠として、サイトが削除するか、あなたが削除を求めるまで保存します。'
       ]],
       ['5. 削除と訂正', [
         '「マイブース」で「ログイン記録を削除」を押すと、すべての申請からあなたの申請者コードが直ちに消去され、以後その記録をあなたと結び付けられなくなります。反映済みの変更は元に戻りません。ブース情報の削除を希望する場合はご連絡ください。',

@@ -3,6 +3,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const { makeEnv } = require('./gas-mock');
+const { fakeJwt, readFake } = require('./fake-jwt');
 const FX = process.argv[2] || process.env.FIXTURES || path.join(__dirname, '../../test-fixtures');
 const load = f => JSON.parse(fs.readFileSync(path.join(FX, f), 'utf8'));
 const CLIENT = 'test-client.apps.googleusercontent.com';
@@ -12,8 +13,8 @@ function fetch(url, o) {
   fetchLog.push(url);
   const resp = (code, body, headers) => ({ getResponseCode: () => code, getContentText: () => body || '', getHeaders: () => headers || {} });
   if (url.startsWith('https://oauth2.googleapis.com/tokeninfo')) {
-    const tok = decodeURIComponent(url.split('id_token=')[1]); const m = tok.match(/^fake:(.+)$/); if (!m) return resp(400, '{}');
-    return resp(200, JSON.stringify({ aud: CLIENT, iss: 'https://accounts.google.com', sub: m[1], exp: String(Math.floor(Date.now() / 1000) + 3600), email: 'someone@example.com', name: 'Real Name' }));
+    const pl = readFake(decodeURIComponent(url.split('id_token=')[1])); if (!pl) return resp(400, '{}');
+    return resp(200, JSON.stringify({ aud: pl.aud, iss: pl.iss, sub: pl.sub, iat: String(pl.iat), exp: String(pl.exp), email: 'someone@example.com', name: 'Real Name' }));
   }
   if (url.startsWith('https://lh3.googleusercontent.com/d/')) { const id = decodeURIComponent(url.split('/d/')[1].split('=')[0]); return PUBLIC.has(id) ? resp(200, '', { 'Content-Type': 'image/jpeg' }) : resp(302, '', { Location: 'https://accounts.google.com/ServiceLogin?continue=x' }); }
   if (url.startsWith('https://safebrowsing.googleapis.com/')) { const body = JSON.parse(o.payload); const bad = body.threatInfo.threatEntries.filter(e => /malware-test/.test(e.url));
@@ -36,7 +37,9 @@ const G = ctx;
 // ---- helpers ----
 let pass = 0, fail = 0; const results = [];
 function ok(name, cond, extra) { (cond ? pass++ : fail++); results.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  — ' + extra : '')); }
-const post = b => JSON.parse(G.doPost({ postData: { contents: JSON.stringify(b) } }).getContent());
+// 'fake:<sub>' → 形狀正確的假 JWT（code.gs 會先做 JWT 預檢才呼叫 tokeninfo）
+const toJwt = b => (b && typeof b.idToken === 'string' && /^fake:/.test(b.idToken)) ? Object.assign({}, b, { idToken: fakeJwt(b.idToken.slice(5), CLIENT) }) : b;
+const post = b => JSON.parse(G.doPost({ postData: { contents: JSON.stringify(toJwt(b)) } }).getContent());
 const get = p => JSON.parse(G.doGet({ parameter: p }).getContent());
 const sheet = (f, n) => env.files[f].getSheetByName(n);
 const edits = () => sheet(DB_ID, '修改申請').data.slice(1).filter(r => r[0]);
@@ -385,6 +388,150 @@ ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@examp
   ok('站長：擁有者移除站長後立即失效', rm.ok && /沒有站長權限/.test(A({ action: 'admin.summary', session: X2.session }).error));
   ok('站長：只剩 1 位時身分欄位由唯一站長核准', (() => { const e = A({ action: 'admin.ownerEdit', session: X1.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { 'IG': 'https://www.instagram.com/single_admin_13/' } }); return e.ok && e.data.applied === 1; })());
   ok('稽核：所有網站後台動作都有站長暱稱', sheet(DB_ID, '站長操作紀錄').data.slice(1).every(r => r[2]));
+}
+// ===== 14. 安全性修正（2026-11-23 稽核報告，每一項一組回歸測試） =====
+{
+  const A = b => post(b), login = sub => post({ action: 'login', idToken: 'fake:' + sub });
+  const evH = evSh.data[0], ecol = h => evH.indexOf(h), ffkWrites = () => env.writes.filter(w => w.file === FFK).length;
+  // 準備：一位管理 pick[0]（魷魚祁聯盟）的攤主、兩位站長
+  const P1 = login('p4-owner'), up1 = G.readSession_(P1.session);
+  post({ action: 'claim', session: P1.session, ownerId: pick[0].id, method: 'dm' }); claims().forEach((r, i) => { if (r[4] === up1) approveClaimRow(i); });
+  const AD1 = login('admin-one'); // 第 13 節的擁有者站長（仍在名單）
+  const pB = A({ action: 'admin.pairStart', session: login('p4-admin-b').session, label: '小編P4' }); env.ui.prompts.push(pB.data.code); G.menuAddAdmin();
+  const AD2 = login('p4-admin-b');
+  ok('P4 準備：2 位站長', JSON.parse(env.props.ADMIN_UIDS).length === 2 && A({ action: 'admin.summary', session: AD2.session }).ok);
+
+  // [高 1] 變形欄位名稱
+  ok('[1] validateField_ 拒絕 twitter(1)', !G.validateField_('twitter(1)', 'javascript:alert(1) or https://evil.example/', 'https://x.com/real').ok);
+  ok('[1] validateField_ 拒絕「販售資訊 」（多空白）', !G.validateField_('販售資訊 ', '隨便寫', '').ok);
+  ok('[1] validateField_ 拒絕全形括號 TWITTER（1）', !G.validateField_('TWITTER（1）', 'https://evil.example/', '').ok);
+  G.setProp_('EVENT_FILL_MODE', 'live');
+  const w0 = ffkWrites();
+  ['twitter(1)', 'TWITTER(1)', 'twitter (1)', '販售資訊 ', ' 販售資訊', 'ｉｇ'].forEach(f => {
+    const r = A({ action: 'eventfill', session: P1.session, ownerId: pick[0].id, event: 'FFK19', booth: pick[0].name, changes: { [f]: f.includes('販售') ? '沒有格式' : 'https://evil.example/' } });
+    ok('[1] 場次填寫拒絕變形欄名「' + f + '」（即時制）', r.ok === false && /不可/.test(r.error), r.error);
+  });
+  ok('[1] 變形欄名完全沒有寫入整理表', ffkWrites() === w0);
+  const okFill = A({ action: 'eventfill', session: P1.session, ownerId: pick[0].id, event: 'FFK19', booth: pick[0].name, changes: { 'TWITTER (1)': 'https://evil.example/' } });
+  ok('[1] 正式欄名仍套用白名單', okFill.ok === false && /只接受/.test(okFill.error), okFill.error);
+  G.setProp_('EVENT_FILL_MODE', 'queue');
+  ok('[1] 主資料修改拒絕變形欄名', A({ action: 'edit', session: P1.session, ownerId: pick[0].id, rowName: '', changes: { 'twitter(1)': 'https://evil.example/' } }).ok === false);
+  ok('[1] 站長直接修改主資料拒絕變形欄名', /不可修改/.test(A({ action: 'admin.ownerEdit', session: AD1.session, ownerId: 'C00968', rowName: '', changes: { 'ig ': 'https://evil.example/' } }).error || ''));
+  ok('[1] 站長修改場次拒絕變形欄名', /不可寫入/.test(A({ action: 'admin.eventEdit', session: AD1.session, event: 'FFK19', booth: pick[0].name, changes: { 'twitter(1)': 'https://evil.example/' } }).error || ''));
+  const pv = A({ action: 'preview', session: P1.session, changes: { 'twitter(1)': 'https://evil.example/' }, old: {} });
+  ok('[1] 預覽也標示變形欄名不可用', pv.ok && pv.data['twitter(1)'].ok === false);
+  // 試算表手動加的（或舊版留下的）申請列：套用前再驗證
+  const es = sheet(DB_ID, '修改申請'); es.appendRow(['EDP4X', G.now_(), '場次填寫', pick[0].id, 'FFK19', pick[0].name, 'twitter(1)', '', 'https://evil.example/', up1, 0, '', '核准', '', '', '', '', '', 'BP4']);
+  const apX = G.applyRow_(es.getLastRow(), true); ok('[1] 套用前再驗證：舊格式申請列不會寫入', apX.ok === false && es.data[es.getLastRow() - 1][12] === '需人工', apX.error);
+  es.appendRow(['EDP4Y', G.now_(), '主資料修改', 'C00968', '新攤位資料庫', '心桃魅夢', 'IG', '', 'https://evil.example/', up1, 0, '', '核准', '', '', '', '', '', 'BP4']);
+  ok('[1] 套用前再驗證：白名單不符的核准列不會寫入', G.applyRow_(es.getLastRow(), true).ok === false);
+
+  // [中 2] 反斜線與非 RFC 3986 字元
+  ok('[2] 反斜線網址被拒（FB 白名單）', !G.validateField_('FB (1)', 'https://evil.example\\.facebook.com/login', '').ok);
+  ok('[2] hostOf_ 對反斜線回傳空值', G.hostOf_('https://evil.example\\.facebook.com/login') === '');
+  ok('[2] 其他不合法字元被拒（空白、<、"、`、{）', ['https://x.com/a b', 'https://x.com/<a>', 'https://x.com/"a', 'https://x.com/`a', 'https://x.com/{a}'].every(u => !G.validateField_('TWITTER (2)', u, '').ok));
+  ok('[2] 非 ASCII 網域被拒、路徑中文自動編碼', !G.validateField_('官方網站', 'https://例子.tw/', '').ok && /%E5%BF%83/.test(G.validateField_('FB (1)', 'https://www.facebook.com/心桃', '').value));
+  ok('[2] 主機名稱格式（.. 開頭結尾點、底線）被拒', ['https://a..facebook.com/', 'https://.facebook.com/', 'https://evil_.facebook.com/'].every(u => !G.validateField_('FB (1)', u, '').ok));
+  ok('[2] 合法網址照常通過', G.validateField_('FB (1)', 'https://www.facebook.com/profile.php?id=100012345678', '').ok && G.validateField_('官方網站', 'https://shop.example.com:8443/a?b=c#d', '').ok);
+
+  // [中 3] 併入主資料庫逐欄驗證
+  const nsH = ns.data[0], nscol = h => nsH.indexOf(h), dbS = sheet(DB_ID, '新攤位資料庫'), dH = dbS.data[0], dcol = h => dH.indexOf(h);
+  const mRow = ns.data.findIndex(r => r[0] === '心桃魅夢'), dRow = dbS.data.findIndex(r => r[dcol('攤主ID')] === 'C00968' && r[dcol('攤位名稱')] === '心桃魅夢');
+  const oldTw = dbS.data[dRow][dcol('TWITTER (1)')], oldFb2 = dbS.data[dRow][dcol('FB (2)')];
+  ns.data[mRow][nscol('FB (2)')] = 'https://evil.example\\.facebook.com/x';
+  ns.data[mRow][nscol('TWITTER (1)')] = 'https://x.com/someone_else_p4';
+  ns.data.push(['P4 併入測試社團', '', 'D01', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'https://www.facebook.com/p4merge', '', '', '', '', '', '', '', '', '', '', '', 'javascript:alert(1)']);
+  const pend0 = edits().filter(r => r[12] === '待審核').length;
+  const mg4 = G.mergeEventToDb_('FF48', 'event_wins');
+  ok('[3] 驗證失敗的值不寫入主資料庫', dbS.data[dRow][dcol('FB (2)')] === oldFb2, dbS.data[dRow][dcol('FB (2)')]);
+  ok('[3] 取代既有身分欄位（TWITTER）改為待審核，不直接覆蓋', dbS.data[dRow][dcol('TWITTER (1)')] === oldTw);
+  const newR = dbS.data.find(r => r[dcol('攤位名稱')] === 'P4 併入測試社團');
+  ok('[3] 新攤位：合法欄位寫入、非法欄位留空', newR && newR[dcol('FB (1)')] === 'https://www.facebook.com/p4merge' && newR[dcol('IG')] === '', newR && newR[dcol('IG')]);
+  const pends = edits().filter(r => r[12] === '待審核').slice(pend0);
+  ok('[3] 沒通過的都變成「待審核」申請', mg4.pending >= 3 && pends.some(r => r[6] === 'FB (2)' && /驗證失敗/.test(r[11])) && pends.some(r => r[6] === 'TWITTER (1)' && /需二次驗證/.test(r[11])) && pends.some(r => r[6] === 'IG' && /驗證失敗/.test(r[11])), JSON.stringify(mg4));
+  const pfb = pends.find(r => r[6] === 'FB (2)'), pfbRow = rowOf(pfb[0]); setStatus(pfbRow, '核准');
+  ok('[3] 即使站長按核准，驗證失敗的值仍不會寫入', dbS.data[dRow][dcol('FB (2)')] === oldFb2 && edits().find(r => r[0] === pfb[0])[12] === '需人工');
+
+  // [中 4] 認領「帳號相符」
+  const C4 = login('p4-claimer'), cid4 = dbS.data.find(r => r[dcol('攤主ID')] && /^https:\/\/x\.com\/[A-Za-z0-9_]+\/?$/.test(r[dcol('TWITTER (1)')]) && !claims().some(c => c[2] === r[dcol('攤主ID')]));
+  const tw4 = cid4[dcol('TWITTER (1)')].replace(/\/$/, ''), id4 = cid4[dcol('攤主ID')];
+  const cl1 = A({ action: 'claim', session: C4.session, ownerId: id4, proofUrl: tw4 });
+  ok('[4] 個人頁網址不能當驗證貼文', cl1.ok === false && /貼文/.test(cl1.error), cl1.error);
+  const cl2 = A({ action: 'claim', session: C4.session, ownerId: id4, proofUrl: tw4.replace('https://x.com', 'https://twitter.com') + '/status/1859990001112223334' });
+  const c4row = claims().find(r => r[2] === id4 && r[4] === G.readSession_(C4.session));
+  ok('[4] 貼文網址＋帳號相符 → 標示「帳號相符，仍需確認貼文含驗證碼」', cl2.ok && /帳號相符，仍需確認貼文含驗證碼/.test(c4row[8]), c4row && c4row[8]);
+  ok('[4] 貼文網址格式（X/FB/IG/Plurk/Bluesky/Threads）', ['https://x.com/a/status/12345678', 'https://www.facebook.com/page/posts/pfbid0abc', 'https://www.facebook.com/permalink.php?story_fbid=123&id=456', 'https://www.instagram.com/p/Cabc123/', 'https://www.plurk.com/p/3h9xk2', 'https://bsky.app/profile/a.bsky.social/post/3kabc12', 'https://www.threads.net/@abc/post/Cxyz123'].every(G.isPostUrl_)
+    && !['https://x.com/a', 'https://www.facebook.com/page', 'https://www.instagram.com/abc/', 'https://bsky.app/profile/a.bsky.social'].some(G.isPostUrl_));
+  ok('[4] 帳號鍵：不同 Bluesky／FB profile.php 帳號不會被當成同一人', G.snsKey_('https://bsky.app/profile/a.bsky.social') !== G.snsKey_('https://bsky.app/profile/b.bsky.social') && G.snsKey_('https://www.facebook.com/profile.php?id=111111') !== G.snsKey_('https://www.facebook.com/profile.php?id=222222') && G.snsKey_('https://www.instagram.com/p/AAAAA/') === 'instagram.com');
+
+  // [中 5] 匯入公式注入
+  env.addFile('ORG_FF49', 'FF49 名單', [['工作表1', [['攤位編號', '社團名稱', '參加日期'], ['A01', '=IMPORTXML("https://evil.example","//a")', '兩天'], ['=1+1', '+正常社團', '第一天'], ['A03', '@提及社團', '兩天']]]]);
+  ok('[5] 場次代碼格式檢查', (() => { try { G.importEvent_({ code: '=FF49', name: 'x', srcId: 'ORG_FF49', templateId: FFK }); return false; } catch (e) { return /場次代碼/.test(e.message); } })());
+  G.importEvent_({ code: 'FF49', name: '=HYPERLINK("https://evil.example","FF49")', start: '2027-05-01', srcId: 'ORG_FF49', templateId: FFK, prefill: false });
+  const l49 = sheet(DB_ID, '場次出展紀錄').data.filter(r => r[1] === 'FF49');
+  ok('[5] 場次出展紀錄每個字串都不會變成公式', l49.length === 3 && l49.every(r => r.every(c => !/^[=+\-@]/.test(String(c)))), l49.map(r => r[4] + '|' + r[2]).join(' / '));
+  const f49 = Object.values(env.files).find(f => f.name === 'FF49 完整攤位整理').getSheetByName('攤位整理表 請在此填寫資訊');
+  ok('[5] 整理表的攤名、攤位編號也是純文字', f49.data.slice(1).every(r => [r[0], r[2], r[3]].every(c => !/^[=+\-@]/.test(String(c || '')))));
+  G.setActiveEvents_(G.activeEvents_().filter(e => e.code !== 'FF49'));
+
+  // [低 6] 登入預檢與失敗上限
+  const tk = () => fetchLog.filter(u => u.startsWith('https://oauth2.googleapis.com/tokeninfo')).length;
+  const t0 = tk();
+  ['bogus', 'a.b.c', 'x'.repeat(5000), fakeJwt('s', 'other-client.apps.googleusercontent.com'), fakeJwt('s', CLIENT, { claims: { exp: Math.floor(Date.now() / 1000) - 10 } }), fakeJwt('s', CLIENT, { claims: { iss: 'https://evil.example' } })].forEach(tok => post({ action: 'login', idToken: tok }));
+  ok('[6] 非 JWT、aud／exp／iss 不符：不呼叫 tokeninfo', tk() === t0, (tk() - t0) + ' 次');
+  const forged = fakeJwt('forged', CLIENT).replace(/\.[^.]+$/, '.' + 'A'.repeat(43)); // 形狀正確、簽章錯
+  const capWas = G.LOGIN_FAIL_CAP; G.LOGIN_FAIL_CAP = 3;
+  for (let k = 0; k < 6; k++) post({ action: 'login', idToken: forged });
+  ok('[6] 失敗達上限後不再呼叫 tokeninfo', tk() - t0 === 3, (tk() - t0) + ' 次');
+  ok('[6] 上限期間登入回覆暫停訊息', /暫時無法使用/.test(post({ action: 'login', idToken: 'fake:p4-good' }).error || ''));
+  G.CacheService.getScriptCache().remove(G.loginFailKey_()); G.LOGIN_FAIL_CAP = capWas;
+  ok('[6] 時段過後正常登入', post({ action: 'login', idToken: 'fake:p4-good' }).ok);
+
+  // [低 7] 所有網址／SNS 欄位都算身分欄位
+  ok('[7] 官方網站、Linktree、FB (2)、其他連結 取代＝敏感', ['官方網站', 'Linktree等連結整合網頁', '其他連結'].every(f => G.validateField_(f, 'https://new.example.com/', 'https://old.example.com/').sensitive) && G.validateField_('FB (2)', 'https://www.facebook.com/b', 'https://www.facebook.com/a').sensitive);
+  ok('[7] 填入原本空白的欄位不算敏感（站長決策）', !G.validateField_('官方網站', 'https://new.example.com/', '').sensitive);
+  ok('[7] IDENTITY_FIELDS 涵蓋所有網址欄', Object.keys(G.FIELD_DOMAINS).every(f => G.IDENTITY_FIELDS.includes(f)) && G.SNS_COLS.every(f => G.IDENTITY_FIELDS.includes(f)));
+  const offRow = dbS.data.find(r => r[dcol('攤主ID')] && r[dcol('官方網站')] && /^https:\/\//.test(r[dcol('官方網站')]) && dbS.data.filter(x => x[dcol('攤主ID')] === r[dcol('攤主ID')]).length === 1);
+  const oe = A({ action: 'admin.ownerEdit', session: AD1.session, ownerId: offRow[dcol('攤主ID')], rowName: offRow[dcol('攤位名稱')], changes: { '官方網站': 'https://replaced.example.com/' } });
+  ok('[7] 兩位站長時，單一站長取代官方網站要等第二位確認', oe.ok && oe.data.waiting === 1 && oe.data.applied === 0 && offRow[dcol('官方網站')] !== 'https://replaced.example.com/', JSON.stringify(oe.data || oe.error));
+
+  // [低 8] 站長借用雲端硬碟
+  env.addFile('OUTSIDE_SHEET', '別人的試算表', [['工作表1', [['攤位名稱', '密碼'], ['甲', 'secret-value']]]]); env.setParent('OUTSIDE_SHEET', 'FOLDER_OTHER');
+  const e8a = A({ action: 'admin.importPreview', session: AD2.session, srcUrl: 'OUTSIDE_SHEET'.padEnd(30, 'X'), templateCode: 'FFK19', code: 'FF50' });
+  ok('[8] 一般站長不能在網站匯入／預覽', /只有擁有者站長/.test(e8a.error || ''), e8a.error);
+  env.addFile('OUTSIDE_SHEET_ID_0000000000001', '別人的試算表', [['工作表1', [['攤位名稱', '密碼'], ['甲', 'secret-value']]]]); env.setParent('OUTSIDE_SHEET_ID_0000000000001', 'FOLDER_OTHER');
+  const e8b = A({ action: 'admin.importPreview', session: AD1.session, srcUrl: 'OUTSIDE_SHEET_ID_0000000000001', templateCode: 'FFK19', code: 'FF50' });
+  ok('[8] 允許資料夾以外的試算表被拒，且不回傳內容', /不在允許的雲端硬碟資料夾/.test(e8b.error || '') && !JSON.stringify(e8b).includes('secret-value'), e8b.error);
+  const e8c = A({ action: 'admin.eventAdd', session: AD1.session, code: 'FF50', sheetUrl: 'OUTSIDE_SHEET_ID_0000000000001' });
+  ok('[8] 新增場次也檢查資料夾', /不在允許的雲端硬碟資料夾/.test(e8c.error || ''));
+  ok('[8] 不存在／沒權限的檔案也被拒', /不在允許的雲端硬碟資料夾/.test(A({ action: 'admin.eventAdd', session: AD1.session, code: 'FF50', sheetUrl: 'NOPE_NOPE_NOPE_NOPE_NOPE_NOPE_1' }).error || ''));
+  env.addFile('ORG_FF50_IN_FOLDER_000000000001', 'FF50 名單', [['工作表1', [['攤位編號', '社團名稱'], ['A01', '測試社團']]]]);
+  const e8d = A({ action: 'admin.importPreview', session: AD1.session, srcUrl: 'ORG_FF50_IN_FOLDER_000000000001', templateCode: 'FFK19', code: 'FF50' });
+  ok('[8] 允許資料夾內的檔案：擁有者站長可預覽', e8d.ok && e8d.data.booths === 1, JSON.stringify(e8d.error || e8d.data.booths));
+  env.props.ALLOWED_FOLDER_IDS = 'FOLDER_OTHER';
+  const e8e = A({ action: 'admin.importPreview', session: AD1.session, srcUrl: 'OUTSIDE_SHEET_ID_0000000000001', templateUrl: 'OUTSIDE_SHEET_ID_0000000000001', code: 'FF50' });
+  ok('[8] ALLOWED_FOLDER_IDS 可指定其他資料夾', !/不在允許/.test(e8e.error || ''), e8e.error || 'ok');
+  ok('[8] 指定後原資料夾就不再允許', /不在允許/.test(A({ action: 'admin.importPreview', session: AD1.session, srcUrl: 'ORG_FF50_IN_FOLDER_000000000001', templateCode: 'FFK19', code: 'FF50' }).error || ''));
+  delete env.props.ALLOWED_FOLDER_IDS;
+
+  // [低 9] 取不到擁有者時 fail closed
+  const DBF = env.files[DB_ID]; DBF.noOwner = true;
+  ok('[9] 取不到擁有者：不能初始化、不能新增站長', (G.menuInitAdmin(), /只有試算表擁有者/.test(env.ui.alerts.pop())) && (env.ui.prompts.push('ANYCODE1'), G.menuAddAdmin(), /只有試算表擁有者/.test(env.ui.alerts.pop())));
+  DBF.noOwner = false; env.ui.prompts.length = 0;
+  env.activeUser = ''; ok('[9] 取不到目前使用者：拒絕', (G.menuAdmins(), /只有試算表擁有者/.test(env.ui.alerts.pop()))); env.activeUser = undefined;
+
+  // 其他
+  ok('[其他] HTML 標籤寫法一律拒絕（含 <b onmouseover>）', ['<b onmouseover=alert(1)>x</b>', '<div>', '</p>', '<!-- x -->', '<?php'].every(v => !G.validateField_('特殊標籤或備註', v, '').ok));
+  ok('[其他] 一般文字中的 < > 可以用（例如 <3、< 新刊 >）', G.validateField_('特殊標籤或備註', '謝謝大家 <3 ＞＜', '').ok && G.validateField_('筆名', '< 新刊 >', '').ok);
+  dH.push('私人備註'); dbS.data[dRow].push('不應公開的內容'); G.bumpVersion_();
+  const od = get({ action: 'owner', id: 'C00968' });
+  ok('[其他] 攤主頁只回傳白名單欄位（新增的私人欄位不會外洩）', od.ok && !JSON.stringify(od).includes('不應公開的內容') && od.data.dbRows.every(r => Object.keys(r.fields).every(k => G.PUBLIC_DB_FIELDS.includes(k))));
+  ok('[其他] index 也不含私人欄位', !JSON.stringify(get({ action: 'index' })).includes('不應公開的內容'));
+  dH.pop(); dbS.data[dRow].pop(); G.bumpVersion_();
+  const ev14 = get({ action: 'event', code: 'FFK19' });
+  ok('[其他] 場次頁只回傳可填欄位（正式欄名）', ev14.ok && ev14.data.booths.every(b => Object.keys(b.fields).every(k => G.EVENT_EDITABLE.includes(k))));
+  const s14 = A({ action: 'admin.summary', session: AD1.session });
+  ok('[營運] 後台 summary 回傳試算表編輯者人數（設定頁警告用）', s14.ok && typeof s14.data.sheetEditors === 'number');
 }
 ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

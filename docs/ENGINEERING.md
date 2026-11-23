@@ -1,9 +1,11 @@
 # 攤位資料庫網站 — 工程文件
 
-版本 2026-11-23（phase 3，Apps Script `VERSION = '2026-11-23-p3'`）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
+版本 2026-11-23（phase 4，Apps Script `VERSION = '2026-11-23-p4'`）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
 
 > 本文件說明架構、資料流程、資料收集、資料結構、API、登入、審核、安全、部署、設定與測試。
-> 隱私權政策見 `docs/PRIVACY.md`（草稿，需站長與工程師審閱，非法律意見）。
+> 隱私權政策見 `docs/PRIVACY.md`（已由站長審閱）。使用說明：網站 `#/help`（攤主，三語）、站長後台「📘 使用說明」（中文）。
+>
+> **⚠ 營運規則：試算表編輯者＝全部權限**（可讀 HMAC_SECRET、改程式、直接改狀態欄）。只在網站審核的站長**不要**給試算表編輯權；試算表只分享給擁有者本人。後台「⚙️ 站長與安全」與選單「🧪 自我檢查」會顯示目前編輯者人數。
 
 ---
 
@@ -172,7 +174,7 @@
 ## 7. 審核與復原
 
 - **審核畫面**（選單 🔍）：HtmlService 範本，所有資料以 `<?= ?>` 自動跳脫；顯示每筆待審核的欄位、舊值→新值差異、正規化後網址的網域、風險分數與原因、Safe Browsing 結果。按鈕：核准、二次驗證後核准、拒絕。
-- **身分欄位**（攤位名稱，或「取代」FB (1)／TWITTER (1)／IG／Pixiv／PLURK／Bluesky (1) 的既有值）屬敏感修改：審核備註需含「二次驗證OK」才會套用（審核畫面的「二次驗證後核准」會自動填），否則狀態變「需人工」。建議由第二位站長或用其他管道向攤主確認後再核准（two-person rule）。
+- **身分欄位**（`IDENTITY_FIELDS`＝攤位名稱＋`FIELD_DOMAINS` 的所有 URL／SNS 欄位：FB (1)(2)、Bluesky (1)(2)、TWITTER (1)(2)、PLURK、Pixiv、Fanbox、Fantia、可洛斯、IG、YOUTUBE、TWITCH、LINE、DISCORD、巴哈姆特、縮圖、其他贊助平台、官方網站、Linktree、其他連結、預告、品書、預購/通販、賣場、試閱）：**取代或清空**既有值屬敏感修改；**空白欄位第一次填入不算**。審核備註需含「二次驗證OK」才會套用（審核畫面的「二次驗證後核准」會自動填），否則狀態變「需人工」。建議由第二位站長或用其他管道向攤主確認後再核准（two-person rule）。
 - **套用**：寫入前會比對目標格目前值是否仍等於申請時的舊值（避免覆蓋別人的修改）；記錄套用位置、套用前值、套用時間。
 - **復原**：狀態改「復原」（同檔案 onEdit 立即復原）或選單 ↩️（選取列）、⏪（某攤主近 N 小時所有已套用修改＋拒絕其待審核申請）。復原同樣會檢查目前值是否等於套用後的值。
 - **只有出展紀錄的攤主（新列模式，2026-11-23-p2.1 起）**：有些攤主只出現在「場次出展紀錄」，「新攤位資料庫」還沒有資料列（例：C02492 加帕利天藍怪預警中心）。管理者送出修改時，伺服器以最近一屆攤名當列名、在備註加「新增主資料列」排入審核；第一筆被核准時才在「新攤位資料庫」最後新增一列（只寫攤位名稱＋攤主ID），再寫入該欄位，套用位置記錄在修改申請。之後的申請直接用這一列。復原只清該格，新增的列保留（要刪請手動刪整列）。
@@ -182,10 +184,10 @@
 
 | 威脅 | 對策 |
 |---|---|
-| 冒名認領 | 認領需站長核准；驗證碼需由官方 SNS 發文，系統比對貼文帳號是否在資料庫既有 SNS 中並標示「相符／⚠ 不在資料庫」；鎖定攤主。 |
+| 冒名認領 | 認領需站長核准；驗證連結必須是「一則貼文」網址（`POST_URL_RES`：X/Twitter status、FB posts/permalink、IG p/reel、噗浪 p、Bluesky post、Threads post）；系統只比對「帳號」（`snsKey_` 依平台取帳號鍵，主機名本身不算相符），相符時標示「帳號相符，仍需確認貼文含驗證碼」——站長仍要打開貼文確認驗證碼；鎖定攤主。 |
 | 已核准帳號被盜／惡意修改 | 預設審核制；身分欄位需二次驗證；頻率限制；高風險與身分欄位修改寄通知信；一鍵復原某攤主近期全部修改；停權。 |
 | 惡意連結 | 每欄網域白名單（`FIELD_DOMAINS`，例 IG 只接受 instagram.com）；只接受 http(s)；拒絕縮網址（bit.ly、reurl.cc、lihi…）、IP 網址、含帳密網址、`javascript:`；punycode（xn--）加風險；移除 utm/fbclid 等追蹤參數；Safe Browsing v4 檢查；網站端連結一律 `rel="noopener noreferrer nofollow ugc"`、`referrerpolicy=no-referrer`。 |
-| XSS／HTML 注入 | 伺服器拒絕含 HTML 標籤的內容；網站只用 `textContent` 建 DOM（無 innerHTML）；CSP 限制 script/connect/img 來源；審核畫面自動跳脫。 |
+| XSS／HTML 注入 | 伺服器拒絕任何 `<` 後接字母、`/`、`!`、`?` 的內容（`/<\s*[A-Za-z\/!?]/`）；網站只用 `textContent` 建 DOM（無 innerHTML）；CSP 限制 script/connect/img 來源；審核畫面自動跳脫。 |
 | 試算表公式注入 | 所有寫入值經 `safeCell_`：以 `= + - @` 開頭者前置 `'` 存成純文字（FFK19 測試副本實測 `'=1+1` 顯示為文字 `=1+1`，未被計算）。 |
 | 不雅／非公開縮圖 | 只接受 Drive 連結；伺服器以匿名請求 lh3 確認公開且為圖片；未公開或只有檔名的縮圖不顯示；縮圖申請一律待審核（主資料）。 |
 | 竄改 session | HMAC 簽章＋到期時間。 |
@@ -193,7 +195,7 @@
 | 站長誤操作 | 所有寫入記錄在修改申請，可復原；寫入前備份（見 CHANGELOG_WRITES.md）。 |
 
 已知限制：
-- 擁有試算表編輯權的人都能改狀態欄＝核准。請只把編輯權給站長。
+- 擁有試算表編輯權的人都能改狀態欄＝核准、讀密鑰、改程式。**只把編輯權給擁有者本人**；網站站長不需要也不應有編輯權。
 - Apps Script Web App 無法取得用戶 IP，頻率限制以帳號為單位；攻擊者可開多個 Google 帳號，但每個帳號都需先通過人工認領才能修改資料。
 - Safe Browsing 需要 API 金鑰（選填）。
 - 簡易觸發 onEdit 無法寄信或開其他檔案，跨檔案套用需按選單。
@@ -216,7 +218,7 @@ Google Cloud Console（與 Apps Script 同一專案或任一專案）→ API 和
 1. 建立 repo，推送本資料夾（**尚未推送，等待站長同意**）。
 2. Settings → Pages → Source：GitHub Actions。
 3. Settings → Secrets and variables → Actions → **Variables**：`API_URL`（9.1 的 /exec 網址）、`OAUTH_CLIENT_ID`、`CONTACT`。
-4. 推送到 `main` 即自動部署（`.github/workflows/deploy.yml`：語法檢查 → 產生 config.js → 發佈 `site/`）。
+4. 推送到 `main` 即自動部署（`.github/workflows/deploy.yml`：語法檢查 → 產生 config.js → **公開資料快照** `tools/snapshot.js` → 發佈 `site/`）。另有每小時排程（cron `17 * * * *`）重新產生快照；repo 60 天沒有活動時 GitHub 會暫停排程，到 Actions 頁按「Enable workflow」即可。所有 Actions 都釘在 commit SHA（註解標示版本）。
 5. 平板操作：以上都能在 GitHub 網頁版完成；改設定只需改 Variables 後在 Actions 按「Run workflow」。
 
 ## 10. 站長選單
@@ -254,9 +256,9 @@ PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主�
 
 ## 12. 前端
 
-- `site/index.html`：CSP、載入順序 config → i18n → privacy → vis-network → app。
-- `assets/app.js`：路由 `#/`（搜尋、統計、整理中場次、曾改名攤主）、`#/o/Cxxxxx`（攤主頁、關聯圖、出展紀錄、認領、回報）、`#/events/CODE`（各整理中場次分頁、攤位卡、填寫）、`#/me`（登入、我管理的攤主、修改、撤回）、`#/privacy`。
-- `assets/admin.js`：站長後台 `#/admin/(queue|events|relations|owners|audit|settings)`，只有中文；權限由伺服器判斷（非站長只看到拒絕畫面）。
+- `site/index.html`：CSP、載入順序 config → i18n → privacy → help → admin → app。vis-network 不在首頁載入，需要畫圖時才由 `loadVis()` 動態載入。
+- `assets/app.js`：路由 `#/`（搜尋、統計、整理中場次、曾改名攤主）、`#/o/Cxxxxx`（攤主頁、關聯圖、出展紀錄、認領、回報）、`#/events/CODE`（各整理中場次分頁、攤位卡、填寫）、`#/me`（登入、我管理的攤主、修改、撤回）、`#/privacy`、`#/help`（使用說明，可 `#/help/claim` 直接跳到某一節）。
+- `assets/admin.js`：站長後台 `#/admin/(queue|events|relations|owners|audit|settings|help)`，只有中文；權限由伺服器判斷（非站長只看到拒絕畫面）。
 - `assets/theme.js`：淺色／深色／跟隨系統，在 `<head>` 同步執行避免閃爍；`?theme=` 可指定。
 - 首頁：數字統計下方是全站關聯圖（`relations.json` ＋伺服器 `relations` 覆蓋層）；手機（≤720px）點一下才載入；可勾選顯示兩兩相連的小關係。`#/all`：全部攤位列表。
 - `assets/i18n.js`：介面文字三語。資料本身不翻譯；伺服器錯誤訊息為中文。
@@ -312,3 +314,32 @@ PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主�
 | 站長操作紀錄 | 時間、站長代號、站長暱稱、動作、對象、欄位、舊值、新值、位置、批次ID、相關申請ID、備註 |
 | 關聯判定 | 判定ID、時間、攤主A（保留）、攤主B、判定、站長代號、站長暱稱、備註、狀態、批次ID |
 | ID 合併對照 | 舊攤主ID、新攤主ID、時間、站長代號、批次ID、狀態 |
+
+## 15. 安全稽核修正（phase 4，2026-11-23）
+
+| # | 問題 | 修正 | 位置（code.gs 函式） | 測試 |
+|---|---|---|---|---|
+| 1 HIGH | 欄位名稱繞過（大小寫／空白／相似名稱） | 所有寫入路徑只接受**完全相同**的正式欄位名稱（`exactField_`、`ALL_FIELDS`）：攤主修改、站長直接修改、場次填寫、套用前再驗證 | `exactField_`、`validateField_`、`prepareDbEdit_`、`submitEventFill_`、`adminEventEdit_`、`applyEventCell_` | run-tests §14 [1] |
+| 2 MED | 反斜線／主機解析差異 | 拒絕 `\`、空白與 RFC 3986 以外字元（`URL_CHARS`）；主機必須符合 `^[a-z0-9.-]+$`（非 ASCII 主機一律拒絕，路徑的非 ASCII 自動百分比編碼）；前端 `safeUrl` 同規則 | `hostOf_`、`validateField_`；`site/assets/app.js safeUrl` | [2] |
+| 3 MED | 併入主資料庫未驗證 | `mergeEventToDb_` 每格重新驗證＋`safeCell_`；不合格、身分欄位、風險 ≥ 30 → 變成「修改申請」待審核，不直接寫 | `mergeEventToDb_` | [3] |
+| 4 MED | 「相符」誤導 | 只接受貼文網址；只比對帳號鍵；標示改為「帳號相符，仍需確認貼文含驗證碼」 | `isPostUrl_`、`snsKey_`、`submitClaim_`；`admin.js` | [4] |
+| 5 MED | 匯入公式注入 | 匯入每個字串 `safeCell_`；代碼 `^[A-Z0-9_-]{2,16}$`；所有 `setValues` 已稽核 | `importEvent_` | [5] |
+| 6 LOW | 登入暴力嘗試 | JWT 形狀預檢（3 段、100–4096 字、RS256、aud/iss/exp/sub）再送 tokeninfo；全站失敗上限 100 次／15 分鐘，達上限暫停登入並寄通知 | `precheckIdToken_`、`verifyIdToken_`、`loginFailKey_` | [6] |
+| 7 LOW | 身分欄位不完整 | `IDENTITY_FIELDS` 涵蓋所有 URL／SNS 欄位（見 §7）；空白第一次填入不算 | `IDENTITY_FIELDS` | [7] |
+| 8 LOW | 新增場次／匯入範圍過大 | 只有擁有者站長；檔案必須在允許資料夾（指令碼屬性 `ALLOWED_FOLDER_IDS`，逗號分隔；未設定＝整理中場次檔案所在資料夾，即 FFK19 整理表的資料夾）；預覽在檢查通過前不回傳任何內容 | `allowedFolders_`、`assertDriveScope_`、`adminEventAdd_`、`adminImport_` | [8] |
+| 9 LOW | `isSheetOwner_` 失敗時放行 | 改為失敗即拒絕（fail closed） | `isSheetOwner_` | [9] |
+| 其他 | HTML 規則、公開欄位、Actions | 嚴格 HTML 規則；`ownerDetail_` 只回傳 `PUBLIC_DB_FIELDS`；Actions 釘 SHA；營運警告（本文件開頭、後台設定頁、自我檢查） | `ownerDetail_`、`deploy.yml` | [other]、[ops] |
+
+不需要重新執行選單初始化（沒有新分頁）。貼上 code.gs → 部署新版本即可。`ALLOWED_FOLDER_IDS` 選填。
+
+## 16. 速度（phase 4）
+
+量測（2026-11-23 22:01，Asia/Taipei；`perf/before.txt`）：Apps Script `meta` ≈1.7 秒、`index` 952KB（gzip 260KB）≈1.5–1.75 秒、`relations` ≈1.5–2.5 秒、攤主頁 `owner` 冷啟動 ≈10.6 秒／熱 ≈1.9 秒；首頁先等 meta 再等 index（串連）；每頁都載入 vis-network（689KB，gzip 164KB）。
+
+改法：
+- **靜態快照**：部署時與每小時由 GitHub Actions 執行 `tools/snapshot.js`，把 `meta`／`index`／`relations` 存成 `site/data/meta.json`、`index.json`、`reloverlay.json`（GitHub Pages CDN＋gzip）。網站先用快照畫面，同時向 Apps Script 要 `meta` 版本號；版本不同才在背景重抓 `index`。快照抓不到時自動改回直接讀 Apps Script。快照檔不進 git（`.gitignore`）。**沒有新增任何 Apps Script 觸發器。**
+- 需要登入或即時的資料（攤主頁詳細資料、場次資料、所有寫入）仍走 Apps Script；伺服器端既有 `CacheService` 分段快取（`cachePutBig_`）不變。
+- vis-network 改成需要時才載入；首頁關聯圖進入畫面才畫（`IntersectionObserver`）。
+- 攤主頁：先用 index 顯示名稱＋骨架，詳細資料回來再補；滑過／按住攤主卡時預先抓取（2 分鐘快取，寫入後清除）。
+- 骨架畫面（`.sk`）取代空白轉圈；meta 與 index 平行請求。
+- 全部攤位列表本來就分頁。

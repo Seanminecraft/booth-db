@@ -32,7 +32,8 @@
   function add(e, c) { if (c === null || c === undefined || c === false) return; if (Array.isArray(c)) { c.forEach(function (x) { add(e, x); }); return; } e.appendChild(c instanceof Node ? c : document.createTextNode(String(c))); }
   function clear(e) { while (e.firstChild) e.removeChild(e.firstChild); return e; }
   function nk(s) { return String(s || '').normalize('NFKC').toLowerCase().replace(/[\s\u3000【】\[\]（）()・·.♡♥✤|｜_\-~～!！?？「」『』]/g, ''); }
-  function safeUrl(u) { try { var x = new URL(String(u).trim()); if ((x.protocol === 'https:' || x.protocol === 'http:') && !x.username && !x.password) return x.href; } catch (e) { } return null; }
+  // 反斜線、空白、< > " { } | ^ ` 的網址一律不顯示成連結（瀏覽器會把 \ 當成 /，網域判斷會被騙）
+  function safeUrl(u) { var raw = String(u).trim(); if (/[\\\s<>"{}|^`]/.test(raw)) return null; try { var x = new URL(raw); if ((x.protocol === 'https:' || x.protocol === 'http:') && !x.username && !x.password) return x.href; } catch (e) { } return null; }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^(www|m|mobile)\./, ''); } catch (e) { return ''; } }
   function platOf(u) { var host = hostOf(u); for (var i = 0; i < PLAT.length; i++) { var d = PLAT[i][0]; if (host === d || host.slice(-(d.length + 1)) === '.' + d) return PLAT[i][1]; } return host || '🔗'; }
   function handleOf(u) { try { var x = new URL(u), p = x.pathname.replace(/\/+$/, ''); var id = x.searchParams.get('id'); if (id) return 'id…' + id.slice(-5); var seg = p.split('/').filter(Boolean); return seg.length ? decodeURIComponent(seg[seg.length > 1 && /^(profile|people|user|users|channel|c|en|ja|zh-tw)$/.test(seg[0]) ? 1 : 0]) : x.hostname; } catch (e) { return u; } }
@@ -60,28 +61,65 @@
     if (S.session) body.session = S.session;
     // text/plain 避免 CORS 預檢（Apps Script 不支援 OPTIONS）
     return fetch(API, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) })
-      .then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) { if (/session/i.test(j.error || '')) logout(true); throw new Error(j.error || 'error'); } return j; });
+      .then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) { if (/session/i.test(j.error || '')) logout(true); throw new Error(j.error || 'error'); }
+        if (!/^(me|preview|login|checkThumb|admin\.(summary|queue|audit|events|relations|suspensions|pairStart))$/.test(body.action)) OWNER_P = {}; // 寫入後清掉攤主頁快取
+        return j; });
   }
 
   /* ---------- 狀態 ---------- */
   var S = { meta: null, index: null, byId: {}, search: [], rel: null, me: null, session: sessionStorage.getItem('bdb_session') || '', events: {} };
-  function loadMeta() { return S.meta ? Promise.resolve(S.meta) : apiGet({ action: 'meta' }).then(function (m) { S.meta = m; return m; }); }
+  /* 速度：公開資料先讀 GitHub Pages 上的靜態快照（data/*.json，部署時由 GitHub Actions 產生，CDN＋gzip），
+   * 同時向 Apps Script 要最新版本號；版本不同才在背景更新，不讓使用者等 Apps Script。 */
+  var SNAP = {};
+  function snap(name) { return SNAP[name] || (SNAP[name] = fetch('data/' + name + '.json', { cache: 'no-cache', credentials: 'omit' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })); }
+  var META_LIVE = null;
+  function liveMeta() { return META_LIVE || (META_LIVE = (API_OK ? apiGet({ action: 'meta' }) : Promise.reject(new Error('no api'))).then(function (m) {
+    var was = S.meta; S.meta = m; S.metaLive = true;
+    if (was && JSON.stringify(was.active) !== JSON.stringify(m.active) && !document.querySelector('#modal:not([hidden])') && !/^#\/admin/.test(location.hash)) route();
+    return m; }).catch(function (e) { META_LIVE = null; throw e; })); }
+  function loadMeta() {
+    if (S.meta) return Promise.resolve(S.meta);
+    var lv = liveMeta();
+    return snap('meta').then(function (m) { if (m && m.version) { if (!S.meta) S.meta = m; lv.catch(function () { }); return S.meta; } return lv; });
+  }
+  function setIndex(d) { S.index = d; S.byId = {}; S.search = d.owners.map(function (o) { S.byId[o[0]] = o; return [o, nk([o[0], o[1]].concat(o[2], o[8] || []).join('|'))]; }); return d; }
+  function storeIndex(d) { try { sessionStorage.setItem('bdb_index', JSON.stringify(d)); } catch (e) { } }
+  var INDEX_BG = null;
+  /** 背景確認版本：伺服器版本號和手上的資料不同時，背景下載最新 index（下次換頁就用新的）。 */
+  function refreshIndexBg() {
+    if (INDEX_BG || !API_OK) return; INDEX_BG = liveMeta().then(function (m) {
+      if (S.index && S.index.v === m.v) return;
+      return apiGet({ action: 'index' }).then(function (d) { setIndex(d); storeIndex(d); });
+    }).catch(function () { INDEX_BG = null; });
+  }
   function loadIndex() {
     if (S.index) return Promise.resolve(S.index);
-    return loadMeta().then(function (m) {
-      try { var c = JSON.parse(sessionStorage.getItem('bdb_index') || 'null'); if (c && c.v === m.v) return c; } catch (e) { }
-      return apiGet({ action: 'index' }).then(function (d) { try { sessionStorage.setItem('bdb_index', JSON.stringify(d)); } catch (e) { } return d; });
-    }).then(function (d) {
-      S.index = d; S.byId = {}; S.search = d.owners.map(function (o) { S.byId[o[0]] = o; return [o, nk([o[0], o[1]].concat(o[2], o[8] || []).join('|'))]; }); return d;
+    var c = null; try { c = JSON.parse(sessionStorage.getItem('bdb_index') || 'null'); } catch (e) { }
+    if (c && c.owners) { setIndex(c); refreshIndexBg(); return Promise.resolve(S.index); }
+    return snap('index').then(function (d) {
+      if (d && d.owners) { setIndex(d); refreshIndexBg(); return d; }
+      // 沒有快照（本機開發或快照失敗）：照舊直接向 Apps Script 讀
+      return liveMeta().then(function () { return apiGet({ action: 'index' }); }).then(function (x) { storeIndex(x); return setIndex(x); });
     });
   }
-  /** 關聯資料＝靜態 relations.json（關聯分析結果）＋伺服器即時覆蓋層（站長「確認無關」、攤主合併、主資料庫裡共用 SNS 帳號的即時關聯）。 */
+  /** 關聯資料＝靜態 relations.json（關聯分析結果）＋伺服器即時覆蓋層（站長「確認無關」、攤主合併、主資料庫裡共用 SNS 帳號的即時關聯）。
+   * 覆蓋層先用快照（立即顯示），背景再向伺服器要最新的。 */
   function loadRel() {
     if (S.rel) return Promise.resolve(S.rel);
     var base = fetch('data/relations.json').then(function (r) { return r.json(); }).catch(function () { return { w: {}, r: {}, g: [], events: {} }; });
-    var ov = API_OK ? apiGet({ action: 'relations' }).catch(function () { return null; }) : Promise.resolve(null);
-    return Promise.all([base, ov]).then(function (x) { S.rel = applyOverlay(x[0], x[1]); return S.rel; });
+    var live = API_OK ? apiGet({ action: 'relations' }).catch(function () { return null; }) : Promise.resolve(null);
+    return Promise.all([base, snap('reloverlay')]).then(function (x) {
+      if (!x[1]) return live.then(function (ov) { S.rel = applyOverlay(x[0], ov); return S.rel; });
+      S.rel = applyOverlay(x[0], x[1]); live.then(function (ov) { if (ov) S.rel = applyOverlay(x[0], ov); }); return S.rel;
+    });
   }
+  /** 攤主詳細資料：同一頁面內 2 分鐘快取；滑過卡片時預先載入。 */
+  var OWNER_P = {};
+  function loadOwner(id) { var c = OWNER_P[id]; if (c && Date.now() - c.at < 120000) return c.p; var p = apiGet({ action: 'owner', id: id }); p.catch(function () { delete OWNER_P[id]; }); OWNER_P[id] = { at: Date.now(), p: p }; return p; }
+  function prefetchOwner(id) { if (API_OK && /^C\d{5,}$/.test(id)) loadOwner(id).catch(function () { }); }
+  /** vis-network（約 160 KB）只在要畫關聯圖時才載入。 */
+  var VIS_P = null;
+  function loadVis() { if (window.vis) return Promise.resolve(); return VIS_P || (VIS_P = new Promise(function (ok, no) { var sc = document.createElement('script'); sc.src = 'vendor/vis-network.min.js'; sc.onload = function () { ok(); }; sc.onerror = function () { VIS_P = null; no(new Error('vis-network')); }; document.head.appendChild(sc); })); }
   function applyOverlay(rel, ov) {
     if (!ov) return rel;
     var mm = ov.merged || {}, res = function (id) { var n = 0; while (mm[id] && n++ < 10) id = mm[id]; return id; }, bad = {};
@@ -107,13 +145,13 @@
     LANGS.forEach(function (l) { add(L, h('button', { class: 'pill sm' + (l === lang ? ' on' : ''), onclick: function () { lang = l; localStorage.setItem('lang', l); applyI18n(); route(); }, text: I[l].langName })); });
   }
   function setNav(r) { document.querySelectorAll('#nav a').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-route') === r); }); }
-  function loading() { clear(app); add(app, h('div', { class: 'spin', text: t('loading') })); }
+  function loading(kind) { clear(app); add(app, h('div', { class: 'skel', 'aria-busy': 'true' }, h('div', { class: 'spin', text: t('loading') }), h('div', { class: 'sk sk-bar' }), h('div', { class: 'sk-grid' }, [0, 1, 2, 3].map(function () { return h('div', { class: 'sk sk-card' }); })), h('div', { class: 'sk sk-block' }))); }
   function fail(err) { clear(app); add(app, h('div', { class: 'card note bad' }, h('b', { text: t('load_fail') }), h('div', { class: 'muted', text: String(err && err.message || err) }), h('p', null, h('button', { class: 'btn', onclick: route, text: t('retry') })))); }
 
   /* ---------- 首頁 ---------- */
   function ownerCard(o) {
     var last = lastEvent(o), act = activeCodes();
-    return h('div', { class: 'card oc', onclick: function () { location.hash = '#/o/' + o[0]; } },
+    return h('div', { class: 'card oc', onclick: function () { location.hash = '#/o/' + o[0]; }, onmouseenter: function () { prefetchOwner(o[0]); }, ontouchstart: function () { prefetchOwner(o[0]); } },
       thumb(o[5]),
       h('div', { class: 'bd' },
         h('div', { class: 'nm', text: o[1] || o[0] }),
@@ -128,19 +166,20 @@
       clear(app); var d = S.index, owners = d.owners, act = (S.meta.active || []);
       var input = h('input', { id: 'q', placeholder: t('search_ph'), autocomplete: 'off', value: sessionStorage.getItem('bdb_q') || '' });
       var res = h('div');
-      add(app, h('section', { class: 'card' }, h('div', { class: 'search' }, h('span', { text: '🔍' }), input)));
+      add(app, h('section', { class: 'card' }, h('div', { class: 'search' }, h('span', { text: '🔍' }), input, helpQ('search'))));
       var renamed = owners.filter(function (o) { return uniqNames(o[2]).length > 1; });
       add(app, h('section', { class: 'stats' },
         [[owners.length, t('stat_owners')], [Object.keys(d.events).length, t('stat_events')], [renamed.length, t('stat_renamed')], [act.length, t('stat_active')]].map(function (x) { return h('div', { class: 'card st' }, h('b', { text: x[0].toLocaleString() }), h('span', { text: x[1] })); })));
       // 大型關聯圖：放在數字統計下面；手機預設點一下才載入；可切換顯示兩兩相連的小關係
       var ovsub = h('small'), ovdiv = h('div', { id: 'overview' }), pairsCb = h('input', { type: 'checkbox' }), ovState = { drawn: false };
       pairsCb.checked = sessionStorage.getItem('bdb_pairs') === '1';
-      var drawNow = function () { ovState.drawn = true; clear(ovdiv); add(ovdiv, h('div', { class: 'spin', text: t('loading') })); loadRel().then(function (rel) { clear(ovdiv); drawOverview(ovdiv, ovsub, rel, pairsCb.checked); }); };
+      var drawNow = function () { ovState.drawn = true; clear(ovdiv); add(ovdiv, h('div', { class: 'spin', text: t('loading') })); Promise.all([loadRel(), loadVis()]).then(function (x) { clear(ovdiv); drawOverview(ovdiv, ovsub, x[0], pairsCb.checked); }).catch(function () { clear(ovdiv); add(ovdiv, h('div', { class: 'muted', text: t('load_fail') })); }); };
       pairsCb.addEventListener('change', function () { sessionStorage.setItem('bdb_pairs', pairsCb.checked ? '1' : ''); if (ovState.drawn) drawNow(); });
       add(app, h('section', { class: 'card ovcard' }, h('div', { class: 'ghead' }, h('h3', { style: 'margin:0' }, t('ov_title'), ' ', ovsub),
         h('div', { class: 'legend' }, h('span', { class: 'lg' }, h('span', { class: 'sw', style: 'background:' + COLORS.owner }), t('legend_owner')), h('span', { class: 'lg' }, h('span', { class: 'sw', style: 'background:' + COLORS.group }), t('legend_group')), h('span', { class: 'lg' }, h('span', { class: 'ln', style: 'border-color:' + COLORS.group }), t('related_title')), h('span', { class: 'lg' }, h('span', { class: 'ln d', style: 'border-color:#ff9f43' }), t('legend_weak')),
           h('label', { class: 'lg', style: 'cursor:pointer' }, pairsCb, ' ', t('ov_pairs')))), ovdiv));
       if (window.matchMedia && window.matchMedia('(max-width: 720px)').matches) add(ovdiv, h('div', { class: 'ovtap' }, h('p', { class: 'muted', text: t('ov_tap_hint') }), h('button', { class: 'btn', onclick: drawNow, text: t('ov_tap') })));
+      else if (window.IntersectionObserver) { add(ovdiv, h('div', { class: 'sk sk-graph' })); var io = new IntersectionObserver(function (es) { if (es.some(function (e) { return e.isIntersecting; })) { io.disconnect(); if (!ovState.drawn) drawNow(); } }, { rootMargin: '200px' }); setTimeout(function () { io.observe(ovdiv); }, 0); }
       else drawNow();
       add(app, res);
       function render() {
@@ -166,7 +205,14 @@
   /* ---------- 攤主頁 ---------- */
   function viewOwner(id) {
     setNav('home'); loading();
-    Promise.all([loadIndex(), apiGet({ action: 'owner', id: id }), loadRel(), S.session ? refreshMe().catch(function () { return null; }) : null]).then(function (r) {
+    var stamp = {}; app.__view = stamp;
+    // 先用 index 顯示名稱（快），詳細資料（Apps Script）回來前顯示骨架
+    loadIndex().then(function () { var o0 = S.byId[id]; if (app.__view !== stamp || !o0 || !app.querySelector('.skel')) return; clear(app);
+      add(app, h('section', { class: 'card' }, h('a', { href: '#/', text: t('back') }), h('div', { class: 'dhead' }, o0[5] ? thumb(o0[5]) : null, h('div', null, h('div', { class: 'big', text: o0[1] || id }), h('div', { class: 'meta' }, id, o0[3] ? ' ・ ' + o0[3] : '', ' ・ ', t('events_n', { n: (o0[4] || []).length }))))));
+      add(app, h('div', { class: 'skel two' }, h('div', null, h('div', { class: 'sk sk-block' }), h('div', { class: 'sk sk-block' })), h('div', null, h('div', { class: 'sk sk-graph' }), h('div', { class: 'spin', text: t('loading') })))); }).catch(function () { });
+    loadVis().catch(function () { });
+    Promise.all([loadIndex(), loadOwner(id), loadRel(), S.session ? refreshMe().catch(function () { return null; }) : null]).then(function (r) {
+      if (app.__view !== stamp) return;
       var d = r[1], rel = r[2];
       if (d.redirect) { toast(t('redirected', { a: id, b: d.redirect })); location.replace('#/o/' + d.redirect); return; }
       var o = S.byId[id] || [id, id, [], '', [], '', [], 0, []]; clear(app);
@@ -202,7 +248,7 @@
     }).catch(fail);
   }
   function drawGraph(el, id, o, sns, grp, weak) {
-    if (!window.vis) { el.textContent = '—'; return; }
+    if (!window.vis) { loadVis().then(function () { drawGraph(el, id, o, sns, grp, weak); }).catch(function () { el.textContent = '—'; }); return; }
     var nodes = [{ id: 'o:' + id, label: o[1] || id, color: COLORS.owner, shape: 'dot', size: 26, font: { color: gfg(), size: 15 } }], edges = [];
     uniqNames(o[2]).forEach(function (v, i) { nodes.push({ id: 'n:' + i, label: v, color: COLORS.name, shape: 'dot', size: 12, font: { color: gfg() } }); edges.push({ from: 'o:' + id, to: 'n:' + i, color: window.BOOTH_THEME.isLight() ? '#b9c4d6' : '#4a5a75' }); });
     sns.slice(0, 20).forEach(function (u, i) { nodes.push({ id: 's:' + i, label: platOf(u) + ' ' + handleOf(u), color: COLORS.sns, shape: 'dot', size: 10, font: { color: gfg(1), size: 12 }, url: u }); edges.push({ from: 'o:' + id, to: 's:' + i, color: '#2f6f5f' }); });
@@ -280,7 +326,7 @@
         add(app, h('section', { class: 'card' }, h('div', { class: 'dhead' }, h('div', null, h('h3', { text: t('nav_me') }), h('div', { class: 'muted' }, '代號 ', me.uid)),
           h('div', { class: 'acts' }, me.admin ? h('a', { class: 'btn admx', href: '#/admin', text: '🛠 站長後台' }) : h('button', { class: 'btn ghost', onclick: pairFlow, text: t('pair_btn') }), h('button', { class: 'btn ghost', onclick: function () { logout(); }, text: t('logout') }), h('button', { class: 'btn warn', onclick: withdrawFlow, text: t('withdraw') })))));
         if (me.suspended) add(app, h('div', { class: 'card note bad', text: t('me_suspended') }));
-        add(app, h('section', { class: 'card' }, h('h3', { text: t('me_owned') }),
+        add(app, h('section', { class: 'card' }, h('h3', null, t('me_owned'), ' ', helpQ('status')),
           me.owned.length ? h('div', { class: 'grid' }, me.owned.map(function (id) { var o = S.byId[id] || [id, id, [], '', [], '', [], 0]; return h('div', { class: 'card', style: 'margin:0' }, h('div', { class: 'nm', text: o[1] }), h('div', { class: 'meta', text: id }),
             h('div', { class: 'acts', style: 'justify-content:flex-start;margin-top:8px' }, h('button', { class: 'btn', onclick: function () { editFlow(id); }, text: t('edit_title') }), h('a', { class: 'btn ghost', href: '#/o/' + id, text: t('ev_open_owner') }),
               (o[4] || []).filter(function (c) { return activeCodes().indexOf(c) >= 0; }).map(function (c) { return h('a', { class: 'btn ghost', href: '#/events/' + encodeURIComponent(c), text: c + ' ' + t('go_fill') }); }))); })) : h('div', { class: 'muted', text: t('me_none') })));
@@ -295,7 +341,7 @@
     if (needLogin()) return;
     var proof = h('input', { class: 'in', placeholder: 'https://x.com/…/status/…' }), note = h('textarea', { class: 'in', maxlength: 300 }), method = h('select', { class: 'in' }, h('option', { value: 'post', text: t('claim_method_post') }), h('option', { value: 'dm', text: t('claim_method_dm') }));
     var out = h('div');
-    var body = modal(t('claim_title') + '：' + name + '（' + id + '）', [h('p', { class: 'muted', text: t('claim_steps') }), out,
+    var body = modal(t('claim_title') + '：' + name + '（' + id + '）', [h('p', { class: 'muted' }, t('claim_steps'), ' ', helpQ('claim')), out,
       h('label', { class: 'fl', text: t('claim_proof') }), proof, h('label', { class: 'fl' }, ''), method, h('label', { class: 'fl', text: t('claim_note') }), note,
       h('p', { class: 'acts' }, h('button', { class: 'btn ghost', onclick: closeModal, text: t('cancel') }), h('button', { class: 'btn', onclick: send, text: t('submit') }))]);
     // 先送出一次空的認領取得驗證碼（重複送出不會產生新申請）
@@ -349,7 +395,7 @@
   function salesEditor(initial) {
     var rows = parseSales(initial), list = h('div', { class: 'sales-ed' }), pv = h('pre', { class: 'sales-pv' });
     var legacy = initial && !String(initial).split('\n').filter(function (x) { return x.trim(); }).every(function (x) { return SALES_RE.test(x.trim()); });
-    var box = h('div', null, legacy ? h('div', { class: 'note warn', text: t('sales_converted') }) : null, h('div', { class: 'muted', style: 'font-size:12px', text: t('sales_hint') }), list,
+    var box = h('div', null, legacy ? h('div', { class: 'note warn', text: t('sales_converted') }) : null, h('div', { class: 'muted', style: 'font-size:12px' }, t('sales_hint'), ' ', helpQ('sales')), list,
       h('button', { class: 'pill sm', type: 'button', onclick: function () { rows.push(['', '']); draw(); var ins = list.querySelectorAll('input'); if (ins.length) ins[ins.length - 2].focus(); }, text: '＋ ' + t('sales_add') }),
       h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px', text: t('sales_preview') }), pv);
     function touch() { box.dirty = true; }
@@ -377,12 +423,12 @@
       var sel = h('select', { class: 'in' }, rows.map(function (r, i) { return h('option', { value: i, text: (r.fields['攤位名稱'] || ('#' + r.row)) + (isNew ? '（' + t('edit_new_row') + '）' : '') }); })), holder = h('div');
       function build() { clear(holder); var r = rows[+sel.value]; add(holder, fieldForm(DB_EDITABLE, r.fields, function (ch) { return apiPost({ action: 'edit', ownerId: id, rowName: r.fields['攤位名稱'] || '', changes: ch }).then(function (j) { S.index = null; sessionStorage.removeItem('bdb_index'); return j.data; }); })); }
       sel.addEventListener('change', build);
-      modal(t('edit_title') + '（' + id + '）', [isNew ? h('div', { class: 'note warn', text: t('edit_new_row_note') }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
+      modal(t('edit_title') + '（' + id + '）', [h('div', { class: 'muted', style: 'text-align:right' }, helpQ('edit')), isNew ? h('div', { class: 'note warn', text: t('edit_new_row_note') }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
     }).catch(function (e) { toast(t('err') + '：' + e.message); });
   }
   function fillFlow(d, b) {
     var thumbIn = h('input', { class: 'in', placeholder: 'https://drive.google.com/file/d/…/view' }), tres = h('span', { class: 'muted' });
-    var thumbBox = h('div', { class: 'card', style: 'margin:12px 0 0;padding:12px' }, h('div', { class: 'k', text: t('thumb_title') }), thumbIn,
+    var thumbBox = h('div', { class: 'card', style: 'margin:12px 0 0;padding:12px' }, h('div', { class: 'k' }, t('thumb_title'), ' ', helpQ('thumb')), thumbIn,
       h('p', { class: 'acts' }, tres, h('button', { class: 'btn ghost', onclick: function () { apiPost({ action: 'checkThumb', url: thumbIn.value }).then(function (j) { tres.textContent = j.status === 'PUBLIC' ? t('thumb_public') : j.status === 'BAD_LINK' ? t('thumb_bad') : t('thumb_not_public') + '（' + j.status + '）'; }).catch(function (e) { tres.textContent = e.message; }); }, text: t('thumb_check') }),
         h('button', { class: 'btn', onclick: function () { apiPost({ action: 'thumb', ownerId: b.id, event: d.code, booth: b.name, boothNo: b.day1 || b.day2, url: thumbIn.value }).then(function (j) { tres.textContent = j.data.applied ? t('sent_live', { a: j.data.applied, q: j.data.queued }) : t('sent_queue', { n: j.data.queued }); }).catch(function (e) { tres.textContent = e.message; }); }, text: t('submit') })));
     modal(t('fill_title') + '：' + d.code + ' ／ ' + b.name, fieldForm(EVENT_EDITABLE, b.fields, function (ch) {
@@ -432,11 +478,33 @@
       h('p', { class: 'acts' }, h('button', { class: 'btn', onclick: function () { apiPost({ action: 'admin.pairStart', label: label.value }).then(function (j) { clear(out); add(out, j.data.already ? h('div', { class: 'note good', text: j.data.label }) : h('div', { class: 'note good' }, t('pair_code') + '：', h('span', { class: 'code', text: j.data.code }), h('div', { class: 'muted', text: t('pair_next') }))); }).catch(function (e) { toast(e.message); }); }, text: t('pair_get') }))]);
   }
 
+  /* ---------- 使用說明 ---------- */
+  /** 小「?」說明鈕：連到使用說明的某一節。 */
+  function helpQ(id, admin) { return h('a', { class: 'helpq', href: admin ? '#/admin/help/' + id : '#/help/' + id, title: t('help_q'), 'aria-label': t('help_q'), text: '?' }); }
+  /** 說明頁本體（攤主版與站長版共用）：目錄＋每個任務的編號步驟＋一張截圖＋常見問題。 */
+  function helpBody(H, focus, base, faqT, tocT) {
+    var wrap = h('div', { class: 'help' });
+    add(wrap, h('section', { class: 'card' }, h('h2', { style: 'font-size:22px', text: H.title }), h('p', { class: 'muted', text: H.intro }),
+      h('div', { class: 'tags' }, H.tasks.map(function (x, i) { return h('a', { class: 'tag', href: base + x.id, text: (i + 1) + '. ' + x.t }); }), h('a', { class: 'tag', href: base + 'faq', text: '❓ ' + faqT }))));
+    H.tasks.forEach(function (x, i) {
+      add(wrap, h('section', { class: 'card htask', id: 'help-' + x.id }, h('h3', { text: (i + 1) + '. ' + x.t }),
+        h('div', { class: 'hgrid' }, h('ol', { class: 'steps' }, x.s.map(function (st) { return h('li', { text: st }); })),
+          h('a', { href: 'help/' + x.img + '.jpg', target: '_blank', rel: 'noopener' }, h('img', { class: 'hshot', src: 'help/' + x.img + '.jpg', alt: x.t, loading: 'lazy' })))));
+    });
+    add(wrap, h('section', { class: 'card', id: 'help-faq' }, h('h3', { text: '❓ ' + faqT }), H.faq.map(function (q) { return h('details', { class: 'faq' }, h('summary', { text: q[0] }), h('p', { text: q[1] })); })));
+    if (focus) setTimeout(function () { var el = document.getElementById('help-' + focus); if (el) el.scrollIntoView({ block: 'start' }); }, 50);
+    return wrap;
+  }
+  function viewHelp(focus) {
+    setNav('help'); clear(app); var H = (window.HELP || {})[lang] || window.HELP.zh;
+    add(app, helpBody(H, focus, '#/help/', H.faq_t, H.toc));
+  }
+  window.BOOTH_HELP = { body: helpBody, q: helpQ };
+
   /* ---------- 隱私權政策 ---------- */
   function viewPrivacy() {
     setNav(''); clear(app); var p = P[lang] || P.zh, contact = CFG.CONTACT || '';
     add(app, h('section', { class: 'card pp' }, h('h2', { style: 'font-size:22px', text: p.title }), h('div', { class: 'muted', text: (lang === 'en' ? 'Last updated: ' : lang === 'ja' ? '最終更新日：' : '最後更新：') + P.updated }),
-      h('div', { class: 'note warn', text: p.draft }),
       p.sections.map(function (s) { return [h('h2', { text: s[0] }), s[1].map(function (x) { return h('p', { text: x.split('{CONTACT}').join(contact) }); })]; }),
       h('div', { class: 'tabs', style: 'margin-top:16px' }, LANGS.map(function (l) { return h('a', { class: 'pill sm' + (l === lang ? ' on' : ''), href: '?lang=' + l + '#/privacy', text: P[l].title }); }))));
   }
@@ -444,7 +512,7 @@
 
   /* ---------- 首頁總覽圖（全部攤主的關聯網絡） ---------- */
   function drawOverview(el, sub, rel, showPairs) {
-    if (!window.vis) return; var adj = {}, E = [], seen = {}, grp = {}; (rel.g || []).forEach(function (g) { grp[g] = 1; });
+    if (!window.vis) { loadVis().then(function () { drawOverview(el, sub, rel, showPairs); }); return; } var adj = {}, E = [], seen = {}, grp = {}; (rel.g || []).forEach(function (g) { grp[g] = 1; });
     function link(a, b, e) { var k = a < b ? a + b : b + a; if (seen[k]) return; seen[k] = 1; (adj[a] = adj[a] || {})[b] = 1; (adj[b] = adj[b] || {})[a] = 1; e.from = a; e.to = b; E.push(e); }
     var L = window.BOOTH_THEME.isLight();
     Object.keys(rel.r).forEach(function (a) { rel.r[a].forEach(function (b) { link(a, b, { color: L ? '#7b52d9' : '#b48cff', width: 1.6 }); }); });
@@ -526,6 +594,7 @@
     if (parts[0] === 'all') return viewAll();
     if (parts[0] === 'admin') return window.viewAdmin ? window.viewAdmin({ h: h, add: add, clear: clear, t: t, app: app, apiPost: apiPost, setNav: setNav, loading: loading, fail: fail, S: S, thumb: thumb, safeUrl: safeUrl, platOf: platOf, hostOf: hostOf, toast: toast, loadMeta: loadMeta, loadIndex: loadIndex, loadRel: loadRel, needLogin: needLogin, urls: urls, route: route, modal: modal, closeModal: closeModal, reauth: reauth }, parts.slice(1)) : viewHome();
     if (parts[0] === 'privacy') return viewPrivacy();
+    if (parts[0] === 'help') return viewHelp(parts[1]);
     return viewHome();
   }
   document.getElementById('mclose').addEventListener('click', closeModal);
