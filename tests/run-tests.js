@@ -218,4 +218,35 @@ const all = JSON.stringify(Object.values(env.files).map(f => f.sheets.map(s => s
 ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@example.com') && !all.includes('Real Name') && !all.includes('1234567890-sub-A'));
 ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 
+
+// ===== 12. 回歸：只有出展紀錄、主資料庫沒有列的攤主（例：C02492 加帕利天藍怪預警中心）=====
+{
+  const dbNow = sheet(DB_ID, '新攤位資料庫'), idCol = dbNow.data[0].indexOf('攤主ID');
+  const inDb = new Set(dbNow.data.slice(1).map(r => r[idCol]));
+  const LOGR = sheet(DB_ID, '場次出展紀錄').data.slice(1), logOnly = LOGR.find(r => r[6] === 'C02492' && !inDb.has('C02492')) || LOGR.find(r => r[6] && !inDb.has(r[6]) && r[4]);
+  const LO = post({ action: 'login', idToken: 'fake:log-only-owner' }), uLO = G.readSession_(LO.session), oid = logOnly[6];
+  ok('回歸：測試對象只在出展紀錄', get({ action: 'owner', id: oid }).data.dbRows.length === 0, oid);
+  post({ action: 'claim', session: LO.session, ownerId: oid }); claims().forEach((r, i) => { if (r[4] === uLO) approveClaimRow(i); });
+  ok('回歸：核准後「我的攤位」列出此攤主', post({ action: 'me', session: LO.session }).me.owned.includes(oid));
+  const hist = get({ action: 'owner', id: oid }).data.history, lastName = hist[hist.length - 1].name;
+  const e1 = post({ action: 'edit', session: LO.session, ownerId: oid, rowName: lastName, changes: { '筆名': '回歸測試筆名', 'FB (1)': 'https://www.facebook.com/regression.test.page' } });
+  ok('回歸：無主資料列也能送出修改（新列模式）', e1.ok && e1.data.queued === 2 && e1.data.newRow === true, JSON.stringify(e1.data || e1.error));
+  const e1b = post({ action: 'edit', session: LO.session, ownerId: oid, rowName: '', changes: { '創作者類型': '繪師' } });
+  ok('回歸：rowName 留空也可以', e1b.ok && e1b.data.queued === 1, JSON.stringify(e1b.data || e1b.error));
+  const before = dbNow.data.length;
+  ok('回歸：核准前主資料庫沒有新增列', dbNow.data.length === before && !dbNow.data.some(r => r[idCol] === oid));
+  const ids = edits().filter(r => r[3] === oid && r[2] === '主資料修改').map(r => r[0]);
+  ids.forEach(x => setStatus(rowOf(x), x === ids[1] ? '核准' : '核准', ''));
+  const rowsNow = dbNow.data.filter(r => r[idCol] === oid);
+  const nc = dbNow.data[0].indexOf('攤位名稱'), pc = dbNow.data[0].indexOf('筆名'), fc = dbNow.data[0].indexOf('FB (1)'), tc = dbNow.data[0].indexOf('創作者類型');
+  ok('回歸：核准後只新增一列、寫入攤名與攤主ID', rowsNow.length === 1 && rowsNow[0][nc] === lastName, rowsNow.length + ' 列，攤名 ' + (rowsNow[0] || [])[nc]);
+  ok('回歸：三個欄位都寫進同一列', rowsNow[0] && rowsNow[0][pc] === '回歸測試筆名' && rowsNow[0][fc] === 'https://www.facebook.com/regression.test.page' && rowsNow[0][tc] === '繪師');
+  ok('回歸：修改申請全部「已套用」並記錄位置', ids.every(x => { const r = edits().find(e => e[0] === x); return r[12] === '已套用' && /^新攤位資料庫!/.test(r[15]); }), ids.map(x => edits().find(e => e[0] === x)[15]).join(' '));
+  ok('回歸：網站讀得到新列', get({ action: 'owner', id: oid }).data.dbRows.length === 1);
+  setStatus(rowOf(ids[0]), '復原'); ok('回歸：可復原', dbNow.data.filter(r => r[idCol] === oid)[0][pc] === '' && edits().find(e => e[0] === ids[0])[12] === '已復原');
+  const e2 = post({ action: 'edit', session: LO.session, ownerId: oid, rowName: lastName, changes: { '筆名': '第二次修改' } });
+  ok('回歸：之後的修改走既有列', e2.ok && e2.data.newRow === false && e2.data.queued === 1, JSON.stringify(e2.data || e2.error));
+  const NO = post({ action: 'login', idToken: 'fake:not-owner' });
+  ok('回歸：非管理者不能用新列模式', post({ action: 'edit', session: NO.session, ownerId: oid, rowName: '', changes: { '筆名': 'x' } }).ok === false);
+}
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

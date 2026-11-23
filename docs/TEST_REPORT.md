@@ -106,3 +106,9 @@ https://docs.google.com/spreadsheets/d/1WCHYHNi2AOVNf0VUVlPtgCQKXYKByESF4culHiHM
 
 ## C. 網站畫面（本機開發伺服器＋模擬 API）
 （壓縮檔內 `screens/`，未放進 repo）：zh／en／ja 各 9 張（首頁、攤主頁＋關聯圖、整理中場次、我的攤位、隱私權政策、登入後場次頁、填寫預覽（縮網址被拒、身分欄位標示二次驗證）、送出結果、認領驗證碼），另有 privacy_static.png（不需 JS 的 privacy.html）。
+
+## D. 2026-11-23 晚：C02492 無法編輯（p2.1）
+- 原因：C02492 只在「場次出展紀錄」，主資料庫沒有列 → 前端 editFlow 直接 return（只跳「—」），伺服器 submitEdit_ 也會拒絕；攤主頁永遠顯示「這是我 → 認領」。
+- 修正：code.gs VERSION 2026-11-23-p2.1 新列模式；前端攤主頁依 me.owned 顯示「編輯」、審核中顯示狀態，表單支援新列。
+- `node tests/run-tests.js`：83 passed, 0 failed（新增 12 項回歸，用真實 fixture 的 C02492）。
+- `tests/ui-regression-c02492.js`（dev-server＋Chrome）：6/6 PASS。

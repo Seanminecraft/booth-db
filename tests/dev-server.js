@@ -33,6 +33,8 @@ G.importEvent_({ code: 'FF48', name: 'Fancy Frontier 開拓動漫祭 48', start:
 // 開發用帳號 dev-owner-1：已核准管理 心桃魅夢（C00968）
 const uid = G.uidOf_('dev-owner-1');
 G.sheet_('認領申請').appendRow(['CLDEV', G.now_(), 'C00968', '心桃魅夢', uid, 'SNS 貼文', '', 'JP-DEV000', '開發資料', '核准', G.now_(), '', 'owner', G.now_()]);
+// 開發用帳號 dev-owner-2：已核准管理 加帕利天藍怪預警中心（C02492，只有出展紀錄、主資料庫沒有列；回歸測試用）
+G.sheet_('認領申請').appendRow(['CLDEV2', G.now_(), 'C02492', '加帕利天藍怪預警中心', G.uidOf_('dev-owner-2'), 'SNS 貼文', '', 'JP-DEV002', '開發資料', '核准', G.now_(), '', 'owner', G.now_()]);
 G.bumpVersion_();
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png' };
 http.createServer((req, res) => {
@@ -48,4 +50,4 @@ http.createServer((req, res) => {
   const p = path.normalize(path.join(ROOT, u.pathname === '/' ? 'index.html' : u.pathname));
   if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); return res.end('not found'); }
   res.writeHead(200, { 'Content-Type': MIME[path.extname(p)] || 'application/octet-stream' }); fs.createReadStream(p).pipe(res);
-}).listen(PORT, () => console.log('dev server http://localhost:' + PORT + '  (dev login: dev-owner-1 manages C00968)'));
+}).listen(PORT, () => console.log('dev server http://localhost:' + PORT + '  (dev login: dev-owner-1 manages C00968, dev-owner-2 manages C02492)'));

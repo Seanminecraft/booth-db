@@ -137,8 +137,9 @@
   /* ---------- 攤主頁 ---------- */
   function viewOwner(id) {
     setNav('home'); loading();
-    Promise.all([loadIndex(), apiGet({ action: 'owner', id: id }), loadRel()]).then(function (r) {
+    Promise.all([loadIndex(), apiGet({ action: 'owner', id: id }), loadRel(), S.session ? refreshMe().catch(function () { return null; }) : null]).then(function (r) {
       var o = S.byId[id] || [id, id, [], '', [], '', [], 0, []], d = r[1], rel = r[2]; clear(app);
+      var me = S.me || { owned: [], pending: [] }, mine = me.owned.indexOf(id) >= 0, pend = !mine && me.pending.indexOf(id) >= 0;
       var sns = [], seen = {}, fields = {};
       d.dbRows.forEach(function (row) { Object.keys(row.fields).forEach(function (k) { var v = row.fields[k]; if (TEXT_FIELDS.indexOf(k) >= 0) { if (!fields[k]) fields[k] = []; if (fields[k].indexOf(v) < 0) fields[k].push(v); } urls(v).forEach(function (u) { var s = safeUrl(u); if (s && !seen[s]) { seen[s] = 1; sns.push(s); } }); }); });
       var hidden = d.history.some(function (x) { return x.thumbHidden; });
@@ -146,7 +147,8 @@
         h('div', { class: 'dhead' }, o[5] ? thumb(o[5]) : null,
           h('div', null, h('div', { class: 'big', text: o[1] || id }), h('div', { class: 'meta' }, id, o[3] ? ' ・ ' + o[3] : '', ' ・ ', t('events_n', { n: (o[4] || []).length })),
             hidden && !o[5] ? h('div', { class: 'muted', text: '🖼 ' + t('thumb_hidden') }) : null),
-          h('div', { class: 'acts' }, h('button', { class: 'btn', onclick: function () { claimFlow(id, o[1]); }, text: t('is_me') }), h('button', { class: 'btn ghost', onclick: function () { reportFlow(id); }, text: t('report_wrong') }))));
+          h('div', { class: 'acts' }, mine ? h('button', { class: 'btn', onclick: function () { editFlow(id); }, text: t('edit_mine') }) : pend ? h('button', { class: 'btn ghost', onclick: function () { claimFlow(id, o[1]); }, text: t('claim_pending') }) : h('button', { class: 'btn', onclick: function () { claimFlow(id, o[1]); }, text: t('is_me') }),
+            h('button', { class: 'btn ghost', onclick: function () { reportFlow(id); }, text: t('report_wrong') }))));
       add(app, head);
       var left = h('div'), right = h('div');
       add(left, h('section', { class: 'card' }, h('h3', { text: t('detail_names') }), h('div', { class: 'tags' }, uniqNames(o[2]).map(function (v) { return h('span', { class: 'tag', text: v }); })),
@@ -301,12 +303,14 @@
   }
   function editFlow(id) {
     apiGet({ action: 'owner', id: id }).then(function (d) {
-      if (!d.dbRows.length) { toast('—'); return; }
-      var sel = h('select', { class: 'in' }, d.dbRows.map(function (r, i) { return h('option', { value: i, text: r.fields['攤位名稱'] || ('#' + r.row) }); })), holder = h('div');
-      function build() { clear(holder); var r = d.dbRows[+sel.value]; add(holder, fieldForm(DB_EDITABLE, r.fields, function (ch) { return apiPost({ action: 'edit', ownerId: id, rowName: r.fields['攤位名稱'] || '', changes: ch }).then(function (j) { S.index = null; sessionStorage.removeItem('bdb_index'); return j.data; }); })); }
+      var rows = d.dbRows.slice(), isNew = !rows.length;
+      // 只有出展紀錄、主資料庫還沒有列的攤主：以最近一屆攤名建立「新列」表單，核准後伺服器才新增資料列
+      if (isNew) { var last = d.history.length ? d.history[d.history.length - 1].name : ''; rows = [{ row: 0, fields: { '攤位名稱': last } }]; }
+      var sel = h('select', { class: 'in' }, rows.map(function (r, i) { return h('option', { value: i, text: (r.fields['攤位名稱'] || ('#' + r.row)) + (isNew ? '（' + t('edit_new_row') + '）' : '') }); })), holder = h('div');
+      function build() { clear(holder); var r = rows[+sel.value]; add(holder, fieldForm(DB_EDITABLE, r.fields, function (ch) { return apiPost({ action: 'edit', ownerId: id, rowName: r.fields['攤位名稱'] || '', changes: ch }).then(function (j) { S.index = null; sessionStorage.removeItem('bdb_index'); return j.data; }); })); }
       sel.addEventListener('change', build);
-      modal(t('edit_title') + '（' + id + '）', [h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
-    }).catch(function (e) { toast(e.message); });
+      modal(t('edit_title') + '（' + id + '）', [isNew ? h('div', { class: 'note warn', text: t('edit_new_row_note') }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
+    }).catch(function (e) { toast(t('err') + '：' + e.message); });
   }
   function fillFlow(d, b) {
     var thumbIn = h('input', { class: 'in', placeholder: 'https://drive.google.com/file/d/…/view' }), tres = h('span', { class: 'muted' });

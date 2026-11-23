@@ -1,7 +1,7 @@
 // 介面文字（中／EN／日）。資料本身（攤名、販售資訊等）不翻譯。
 window.I18N = {
   zh: {
-    langName: '中文', pen: '筆名', how_same: '同名（主資料庫）', how_log: '僅場次紀錄', how_link: '關聯分析（SNS／筆名）', title: '攤位資料庫', sub: '以攤主為單位整合歷屆攤名・SNS・社團',
+    langName: '中文', edit_mine: '✏️ 編輯我的攤位資料', claim_pending: '認領審核中（查看驗證碼）', edit_new_row: '新列', edit_new_row_note: '這位攤主目前只有出展紀錄，主資料庫還沒有資料列。送出並經站長核准後，系統會以這個攤名新增一列。', pen: '筆名', how_same: '同名（主資料庫）', how_log: '僅場次紀錄', how_link: '關聯分析（SNS／筆名）', title: '攤位資料庫', sub: '以攤主為單位整合歷屆攤名・SNS・社團',
     nav_home: '首頁', nav_events: '整理中場次', nav_me: '我的攤位', nav_privacy: '隱私權政策',
     search_ph: '搜尋攤位名稱、筆名、攤主ID 或 SNS 帳號（例：RabbitCandy、x.com/@usagi）',
     stat_owners: '位攤主', stat_events: '個場次', stat_renamed: '位曾改名', stat_active: '個整理中場次',
@@ -37,7 +37,7 @@ window.I18N = {
     dev_login: '（開發用）假登入', copy: '複製', copied: '已複製', admin_note: '連結只會以純文字＋安全屬性顯示；縮網址、IP 網址、javascript: 等一律拒絕。'
   },
   en: {
-    langName: 'EN', pen: 'Pen name', how_same: 'Same name (master DB)', how_log: 'Event record only', how_link: 'Linkage (SNS / pen name)', title: 'Booth Database', sub: 'Every booth name, SNS account and circle, grouped by owner',
+    langName: 'EN', edit_mine: '✏️ Edit my booth info', claim_pending: 'Claim under review (show code)', edit_new_row: 'new row', edit_new_row_note: 'This owner only has exhibition records so far — there is no row in the master database yet. After an admin approves your changes, a new row is created under this booth name.', pen: 'Pen name', how_same: 'Same name (master DB)', how_log: 'Event record only', how_link: 'Linkage (SNS / pen name)', title: 'Booth Database', sub: 'Every booth name, SNS account and circle, grouped by owner',
     nav_home: 'Home', nav_events: 'Ongoing events', nav_me: 'My booth', nav_privacy: 'Privacy',
     search_ph: 'Search booth name, pen name, owner ID or SNS account (e.g. RabbitCandy, x.com/@usagi)',
     stat_owners: 'owners', stat_events: 'events', stat_renamed: 'renamed owners', stat_active: 'ongoing events',
@@ -73,7 +73,7 @@ window.I18N = {
     dev_login: '(dev) fake sign-in', copy: 'Copy', copied: 'Copied', admin_note: 'Links are shown as plain text with safe attributes; shorteners, IP URLs and javascript: are rejected.'
   },
   ja: {
-    langName: '日本語', pen: 'ペンネーム', how_same: '同名（マスターDB）', how_log: 'イベント記録のみ', how_link: '関連分析（SNS／ペンネーム）', title: 'ブースデータベース', sub: '歴代のサークル名・SNS・サークル関係を出展者ごとに整理',
+    langName: '日本語', edit_mine: '✏️ 自分のブース情報を編集', claim_pending: '申請審査中（確認コードを表示）', edit_new_row: '新規行', edit_new_row_note: 'この出展者には出展履歴しかなく、マスターデータベースに行がありません。管理者の承認後、このサークル名で新しい行が作成されます。', pen: 'ペンネーム', how_same: '同名（マスターDB）', how_log: 'イベント記録のみ', how_link: '関連分析（SNS／ペンネーム）', title: 'ブースデータベース', sub: '歴代のサークル名・SNS・サークル関係を出展者ごとに整理',
     nav_home: 'ホーム', nav_events: '整理中のイベント', nav_me: 'マイブース', nav_privacy: 'プライバシー',
     search_ph: 'サークル名・ペンネーム・出展者ID・SNSアカウントで検索（例：RabbitCandy、x.com/@usagi）',
     stat_owners: '出展者', stat_events: 'イベント', stat_renamed: '名義変更あり', stat_active: '整理中のイベント',

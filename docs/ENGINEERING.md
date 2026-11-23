@@ -175,6 +175,7 @@
 - **身分欄位**（攤位名稱，或「取代」FB (1)／TWITTER (1)／IG／Pixiv／PLURK／Bluesky (1) 的既有值）屬敏感修改：審核備註需含「二次驗證OK」才會套用（審核畫面的「二次驗證後核准」會自動填），否則狀態變「需人工」。建議由第二位站長或用其他管道向攤主確認後再核准（two-person rule）。
 - **套用**：寫入前會比對目標格目前值是否仍等於申請時的舊值（避免覆蓋別人的修改）；記錄套用位置、套用前值、套用時間。
 - **復原**：狀態改「復原」（同檔案 onEdit 立即復原）或選單 ↩️（選取列）、⏪（某攤主近 N 小時所有已套用修改＋拒絕其待審核申請）。復原同樣會檢查目前值是否等於套用後的值。
+- **只有出展紀錄的攤主（新列模式，2026-11-23-p2.1 起）**：有些攤主只出現在「場次出展紀錄」，「新攤位資料庫」還沒有資料列（例：C02492 加帕利天藍怪預警中心）。管理者送出修改時，伺服器以最近一屆攤名當列名、在備註加「新增主資料列」排入審核；第一筆被核准時才在「新攤位資料庫」最後新增一列（只寫攤位名稱＋攤主ID），再寫入該欄位，套用位置記錄在修改申請。之後的申請直接用這一列。復原只清該格，新增的列保留（要刪請手動刪整列）。
 - **停權**：⛔ 選單，帳號或整個攤主。
 
 ## 8. 安全模型（防惡意接手）
@@ -238,12 +239,13 @@ Google Cloud Console（與 Apps Script 同一專案或任一專案）→ API 和
 ## 11. 測試
 
 ```
-node tests/run-tests.js [fixtures 目錄]     # 端到端，71 項
-node tests/dev-server.js 8787              # 本機網站＋模擬 API（假登入 dev-owner-1）
+node tests/run-tests.js [fixtures 目錄]     # 端到端，83 項
+node tests/dev-server.js 8787              # 本機網站＋模擬 API（假登入 dev-owner-1 管 C00968、dev-owner-2 管 C02492）
+PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主頁「編輯」按鈕與新列表單的 UI 回歸（需先開 dev-server）
 ```
 - `gas-mock.js` 模擬 SpreadsheetApp、CacheService、PropertiesService、Utilities（HMAC/base64）、UrlFetchApp、ContentService、LockService、MailApp、DriveApp.makeCopy、HtmlService 範本。
 - fixtures（`fixture_db.json`、`fixture_log.json`、`fixture_ffk19.json`）是真實試算表的匯出，**不放進 repo**（隱私與檔案大小），由維護者自行從試算表匯出放在 `../test-fixtures/`。
-- 測試涵蓋：公開 API、快取、登入雜湊、認領／核准、修改／套用／復原、各種惡意連結、審核畫面跳脫、一鍵復原、停權、頻率限制、FFK19 場次填寫（審核制／即時制／鎖定欄位／別人的攤位／同名多列）、縮圖公開檢查、FF48 匯入（公式保留、預先帶入、沿用攤主ID）、併入主資料庫、撤回、全分頁個資掃描、自我檢查。
+- 測試涵蓋：公開 API、快取、登入雜湊、認領／核准、修改／套用／復原、各種惡意連結、審核畫面跳脫、一鍵復原、停權、頻率限制、FFK19 場次填寫（審核制／即時制／鎖定欄位／別人的攤位／同名多列）、縮圖公開檢查、FF48 匯入（公式保留、預先帶入、沿用攤主ID）、併入主資料庫、撤回、只有出展紀錄的攤主（C02492 回歸：新列模式送出、核准後新增一列、復原、非管理者被拒）、全分頁個資掃描、自我檢查。
 - `run-tests.js` 會輸出 `tests/ffk19_expected_writes.json`（預期寫入的格子），用來在真實 FFK19 **測試副本**重播並讀回驗證。2026-11-23 結果見 `docs/TEST_REPORT.md`。
 
 ## 12. 前端

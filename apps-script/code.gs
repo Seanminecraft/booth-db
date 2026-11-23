@@ -19,7 +19,7 @@
  */
 
 /* ============================== 常數 ============================== */
-var VERSION = '2026-11-23-p2';
+var VERSION = '2026-11-23-p2.1';
 var SH = {
   DB: '新攤位資料庫',
   LOG: '場次出展紀錄',
@@ -393,10 +393,16 @@ function pathHead_(u) { var m = String(u).match(/^https?:\/\/[^\/]+\/(@?[A-Za-z0
 function submitEdit_(uid, me, b) {
   var id = str_(b.ownerId); if (me.owned.indexOf(id) < 0) throw new Error('尚未核准管理此攤主');
   if (ownerSuspended_(id)) throw new Error('此攤主目前鎖定中，請聯絡站長');
-  var db = readDb_(), rowIdx = -1, key = str_(b.rowName);
+  var db = readDb_(), rowIdx = -1, key = str_(b.rowName), newRow = false, row;
   db.rows.forEach(function (r, i) { if (r[db.idc] === id && (rowIdx < 0 || r[db.nc] === key)) rowIdx = i; });
-  if (rowIdx < 0) throw new Error('找不到此攤主在新攤位資料庫的資料列');
-  var row = db.rows[rowIdx], changes = b.changes || {}, batch = newId_('B'), out = [], urls = [];
+  if (rowIdx >= 0) row = db.rows[rowIdx];
+  else {
+    // 只出現在「場次出展紀錄」、主資料庫還沒有列的攤主：核准後才新增一列（攤位名稱＝最近一屆攤名，攤主ID＝此攤主）
+    var hist = ownerDetail_(id).history; if (!hist.length) throw new Error('找不到此攤主的任何資料');
+    key = str_(hist[hist.length - 1].name).trim(); if (!key) throw new Error('找不到此攤主的攤位名稱');
+    newRow = true; row = db.hdr.map(function () { return ''; }); row[db.nc] = key; row[db.idc] = id;
+  }
+  var changes = b.changes || {}, batch = newId_('B'), out = [], urls = [];
   var fields = Object.keys(changes); if (fields.length > 30) throw new Error('一次最多修改 30 欄');
   var prepared = fields.map(function (f) {
     if (DB_EDITABLE.indexOf(f) < 0) throw new Error('此欄不可修改：' + f);
@@ -409,13 +415,13 @@ function submitEdit_(uid, me, b) {
   if (sb.bad.length) { alert_('Safe Browsing 攔截', uid + ' 對 ' + id + ' 提交危險連結：' + sb.bad.join('\n')); throw new Error('連結被判定為危險網站，已拒絕'); }
   var extra = prepared.length > 8 ? 10 : 0, sh = sheet_(SH.EDIT), maxRisk = 0;
   prepared.forEach(function (p) {
-    var risk = Math.min(100, p.vf.risk + extra), notes = p.vf.notes.concat([sbNote]); maxRisk = Math.max(maxRisk, risk);
+    var risk = Math.min(100, p.vf.risk + extra), notes = p.vf.notes.concat([sbNote]).concat(newRow ? ['新增主資料列'] : []); maxRisk = Math.max(maxRisk, risk);
     sh.appendRow([newId_('ED'), now_(), '主資料修改', id, SH.DB, safeCell_(row[db.nc]), p.f, safeCell_(p.old), safeCell_(p.vf.value), uid, risk, notes.join('｜'), '待審核', '', '', '', '', '', batch]);
     out.push(p.f);
   });
   var sens = prepared.some(function (p) { return p.vf.sensitive; });
   if (maxRisk >= 50 || sens) alert_('可疑修改待審核', uid + ' 對 ' + id + '（' + row[db.nc] + '）提交 ' + out.length + ' 欄修改，最高風險 ' + maxRisk + (sens ? '，含身分欄位變更（需二次驗證）' : '') + '\n欄位：' + out.join('、'));
-  return { queued: out.length, batch: batch };
+  return { queued: out.length, batch: batch, newRow: newRow, rowName: row[db.nc] };
 }
 
 /** 場次整理表填寫：依設定 queue（預設）或 live。 */
@@ -513,24 +519,32 @@ function applyRow_(n, crossFile) {
   var r = editRow_(n); if (r.status !== '核准') return { ok: false, error: '狀態不是核准' };
   if (/需二次驗證/.test(str_(r.notes)) && !/二次驗證OK/i.test(str_(r.revNote))) { setEdit_(n, { status: '需人工', revNote: str_(r.revNote) + '｜敏感欄位：請以原認領管道確認後，在審核備註寫「二次驗證OK」再改回核准' }); return { ok: false, error: '需二次驗證' }; }
   var res;
-  if (r.type === '主資料修改') res = applyDbCell_(r.owner, str_(r.key), str_(r.field), str_(r.val), str_(r.old));
+  if (r.type === '主資料修改') res = applyDbCell_(r.owner, str_(r.key), str_(r.field), str_(r.val), str_(r.old), /新增主資料列/.test(str_(r.notes)));
   else if (r.type === '縮圖') res = applyLogThumb_(str_(r.key), str_(r.val), str_(r.old));
   else if (r.type === '場次填寫') { if (!crossFile) return { ok: false, error: '跨檔案，請用選單套用' };
     var ev = findEvent_(str_(r.target)); if (!ev) res = { ok: false, error: '場次已不在整理中清單' };
     else { var kb = str_(r.key).split('｜'); res = applyEventCell_(ev, kb[0], kb[1] || '', str_(r.field), str_(r.val), str_(r.old)); } }
   else if (r.type === '關聯回報') res = { ok: true, where: '（人工處理）', before: '' };
   else res = { ok: false, error: '未知類型' };
-  if (res.ok) { setEdit_(n, { status: '已套用', where: res.where, before: res.before, appliedAt: now_(), revAt: r.revAt || now_() }); bumpVersion_(); }
+  if (res.ok) { var upd = { status: '已套用', where: res.where, before: res.before, appliedAt: now_(), revAt: r.revAt || now_() }; if (res.created) upd.revNote = str_(r.revNote) + '｜' + res.created; setEdit_(n, upd); bumpVersion_(); }
   else setEdit_(n, { status: '需人工', revNote: str_(r.revNote) + '｜' + res.error });
   return res;
 }
-function applyDbCell_(ownerId, key, field, value, expectOld) {
+function applyDbCell_(ownerId, key, field, value, expectOld, allowNewRow) {
   var db = readDb_(), ci = db.hm[normHeader_(field)]; if (ci === undefined || DB_EDITABLE.indexOf(field) < 0) return { ok: false, error: '欄位不可寫入' };
-  var hits = []; db.rows.forEach(function (row, i) { if (row[db.idc] === ownerId && str_(row[db.nc]).trim() === key.trim()) hits.push(i); });
+  var hits = [], own = []; db.rows.forEach(function (row, i) { if (row[db.idc] !== ownerId) return; own.push(i); if (str_(row[db.nc]).trim() === key.trim()) hits.push(i); });
+  var created = '';
+  if (!hits.length && allowNewRow) {
+    if (own.length === 1) hits = own; // 同一批先套用了「攤位名稱」：用剛新增的那一列
+    else if (!own.length) { // 主資料庫還沒有此攤主：新增一列（只寫攤位名稱與攤主ID）
+      var nr = db.hdr.map(function () { return ''; }); nr[db.nc] = safeCell_(key); nr[db.idc] = ownerId; db.sheet.appendRow(nr);
+      created = '（新增第 ' + db.sheet.getLastRow() + ' 列）'; db = readDb_(); db.rows.forEach(function (row, i) { if (row[db.idc] === ownerId) hits.push(i); });
+    }
+  }
   if (hits.length !== 1) return { ok: false, error: hits.length ? '同名多列' : '找不到資料列（可能已改名或刪除）' };
   var cur = str_(db.rows[hits[0]][ci]); if (cur.trim() !== str_(expectOld).trim()) return { ok: false, error: '目前值與申請時不同，請人工確認' };
   db.sheet.getRange(hits[0] + 2, ci + 1).setValue(safeCell_(value));
-  return { ok: true, where: SH.DB + '!' + colLetter_(ci) + (hits[0] + 2), before: cur };
+  return { ok: true, where: SH.DB + '!' + colLetter_(ci) + (hits[0] + 2), before: cur, created: created };
 }
 function applyLogThumb_(rid, fid, expectOld) {
   var lg = readLog_(), C = lg.C, i = -1; lg.rows.forEach(function (r, k) { if (r[C.rid] === rid) i = k; }); if (i < 0) return { ok: false, error: '找不到出展紀錄' };
