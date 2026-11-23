@@ -124,7 +124,7 @@
     if (!ov) return rel;
     var mm = ov.merged || {}, res = function (id) { var n = 0; while (mm[id] && n++ < 10) id = mm[id]; return id; }, bad = {};
     (ov.unrelated || []).forEach(function (p) { bad[[res(p[0]), res(p[1])].sort().join('|')] = 1; });
-    var w = {}, r = {}, has = function (o, a, b) { return (o[a] || []).some(function (x) { return (x[0] || x) === b; }); };
+    var w = {}, r = {}, has = function (o, a, b) { return (o[a] || []).some(function (x) { return (typeof x === 'string' ? x : x[0]) === b; }); };
     function addW(a, b, why) { a = res(a); b = res(b); if (a === b || bad[[a, b].sort().join('|')] || has(r, a, b) || has(w, a, b)) return; (w[a] = w[a] || []).push([b, why]); (w[b] = w[b] || []).push([a, why]); }
     Object.keys(rel.r || {}).forEach(function (a) { rel.r[a].forEach(function (b) { var x = res(a), y = res(b); if (x === y || bad[[x, y].sort().join('|')] || has(r, x, y)) return; (r[x] = r[x] || []).push(y); (r[y] = r[y] || []).push(x); }); });
     Object.keys(rel.w || {}).forEach(function (a) { rel.w[a].forEach(function (p) { addW(a, p[0], p[1]); }); });
@@ -239,13 +239,26 @@
       var gdiv = h('div', { id: 'graph' });
       add(right, h('section', { class: 'card' }, h('h3', { text: t('detail_graph') }),
         h('div', { class: 'legend' }, [['owner', 'legend_owner'], ['name', 'legend_name'], ['sns', 'legend_sns'], ['group', 'legend_group']].map(function (x) { return h('span', { class: 'lg' }, h('span', { class: 'sw', style: 'background:' + COLORS[x[0]] }), t(x[1])); }), h('span', { class: 'lg' }, h('span', { class: 'ln d' }), t('legend_weak'))), gdiv));
-      var weak = (rel.w[id] || []), grp = (rel.r[id] || []);
+      var gs = {}, grp = (rel.r[id] || []).filter(function (g) { if (g === id || gs[g]) return false; gs[g] = 1; return true; });
+      var ws = {}, weak = (rel.w[id] || []).filter(function (w) { if (!w || w[0] === id || gs[w[0]] || ws[w[0]]) return false; ws[w[0]] = 1; return true; });
       if (grp.length) add(right, h('section', { class: 'card' }, h('h3', { text: t('related_title') }), h('div', { class: 'tags' }, grp.map(function (g) { var x = S.byId[g]; return h('a', { class: 'tag', href: '#/o/' + g, text: (x ? x[1] : g) + ' (' + g + ')' }); }))));
       if (weak.length) add(right, h('section', { class: 'card' }, h('h3', null, t('weak_title'), h('small', { text: ' ' + t('weak_hint') })), h('table', { class: 't' }, h('tbody', null, weak.map(function (w) { var x = S.byId[w[0]]; return h('tr', null, h('td', null, h('a', { href: '#/o/' + w[0], text: (x ? x[1] : w[0]) })), h('td', { class: 'muted', text: w[1] })); })))));
       if (d.recentEdits && d.recentEdits.length) add(right, h('section', { class: 'card' }, h('h3', { text: t('recent_edits') }), h('table', { class: 't' }, h('tbody', null, d.recentEdits.map(function (e) { return h('tr', null, h('td', { text: e.at }), h('td', { text: e.field })); })))));
       add(app, h('div', { class: 'two' }, left, right));
-      drawGraph(gdiv, id, o, sns, grp, weak);
+      try { drawGraph(gdiv, id, o, sns, grp, weak); } catch (e) { clear(gdiv); add(gdiv, h('div', { class: 'muted', style: 'padding:16px', text: t('graph_fail') })); }
     }).catch(fail);
+  }
+  /** 建立 vis 關聯圖（唯一入口）：節點 id 去重（先出現的保留）、去掉端點不存在或重複的邊、
+   * 同一容器先銷毀舊圖；建立失敗只在圖的位置顯示訊息，不會讓整頁變成「資料載入失敗」。 */
+  var LIVE_NETS = [];
+  function destroyNets() { LIVE_NETS.forEach(function (n) { try { n.destroy(); } catch (e) { } }); LIVE_NETS = []; }
+  function mountNet(el, nodes, edges, opts) {
+    if (el.__net) { try { el.__net.destroy(); } catch (e) { } LIVE_NETS = LIVE_NETS.filter(function (n) { return n !== el.__net; }); el.__net = null; }
+    var N = [], ids = {}, E = [], ek = {};
+    (nodes || []).forEach(function (n) { if (!n || n.id === undefined || n.id === null || ids[n.id]) return; ids[n.id] = 1; N.push(n); });
+    (edges || []).forEach(function (e) { if (!e || !ids[e.from] || !ids[e.to] || e.from === e.to) return; var k = e.from < e.to ? e.from + '\u0000' + e.to : e.to + '\u0000' + e.from; if (ek[k]) return; ek[k] = 1; var c = {}; Object.keys(e).forEach(function (x) { if (x !== 'id') c[x] = e[x]; }); E.push(c); });
+    try { var net = new vis.Network(el, { nodes: new vis.DataSet(N), edges: new vis.DataSet(E) }, opts); el.__net = net; LIVE_NETS.push(net); return { net: net, nodes: N }; }
+    catch (err) { if (window.console) console.warn('graph failed', err); clear(el); add(el, h('div', { class: 'muted', style: 'padding:16px', text: t('graph_fail') })); return null; }
   }
   function drawGraph(el, id, o, sns, grp, weak) {
     if (!window.vis) { loadVis().then(function () { drawGraph(el, id, o, sns, grp, weak); }).catch(function () { el.textContent = '—'; }); return; }
@@ -254,8 +267,8 @@
     sns.slice(0, 20).forEach(function (u, i) { nodes.push({ id: 's:' + i, label: platOf(u) + ' ' + handleOf(u), color: COLORS.sns, shape: 'dot', size: 10, font: { color: gfg(1), size: 12 }, url: u }); edges.push({ from: 'o:' + id, to: 's:' + i, color: '#2f6f5f' }); });
     grp.slice(0, 15).forEach(function (g) { var x = S.byId[g]; nodes.push({ id: 'g:' + g, label: x ? x[1] : g, color: COLORS.group, shape: 'dot', size: 14, font: { color: gfg() }, owner: g }); edges.push({ from: 'o:' + id, to: 'g:' + g, color: COLORS.group, width: 2 }); });
     weak.slice(0, 15).forEach(function (w) { if (grp.indexOf(w[0]) >= 0) return; var x = S.byId[w[0]]; nodes.push({ id: 'w:' + w[0], label: x ? x[1] : w[0], color: '#55627a', shape: 'dot', size: 11, font: { color: gfg(1) }, owner: w[0], title: w[1] }); edges.push({ from: 'o:' + id, to: 'w:' + w[0], dashes: true, color: COLORS.weak }); });
-    var net = new vis.Network(el, { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) }, { physics: { stabilization: { iterations: 150 }, barnesHut: { springLength: 110 } }, interaction: { hover: true }, nodes: { borderWidth: 0 } });
-    net.on('doubleClick', function (p) { var n = p.nodes[0] && nodes.filter(function (x) { return x.id === p.nodes[0]; })[0]; if (n && n.owner) location.hash = '#/o/' + n.owner; });
+    var m = mountNet(el, nodes, edges, { physics: { stabilization: { iterations: 150 }, barnesHut: { springLength: 110 } }, interaction: { hover: true }, nodes: { borderWidth: 0 } }); if (!m) return;
+    m.net.on('doubleClick', function (p) { var n = p.nodes[0] && m.nodes.filter(function (x) { return x.id === p.nodes[0]; })[0]; if (n && n.owner) location.hash = '#/o/' + n.owner; });
   }
 
   /* ---------- 整理中場次 ---------- */
@@ -526,7 +539,7 @@
         font: { color: L ? '#1a2332' : '#dfe7f2', size: 30, strokeWidth: 6, strokeColor: L ? '#ffffff' : '#0f1419' }, scaling: { label: { drawThreshold: 2 } } }; });
     var E2 = E.filter(function (e) { return keep(e.from); });
     sub.textContent = t(showPairs ? 'ov_sub_pairs' : 'ov_sub', { n: N.length, e: E2.length, p: small });
-    var net = new vis.Network(el, { nodes: new vis.DataSet(N), edges: new vis.DataSet(E2) }, { layout: { improvedLayout: false }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -45, springLength: 50, avoidOverlap: 0.4 }, stabilization: { iterations: 400 } }, interaction: { hover: true, tooltipDelay: 80, hideEdgesOnDrag: true } });
+    var m = mountNet(el, N, E2, { layout: { improvedLayout: false }, physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -45, springLength: 50, avoidOverlap: 0.4 }, stabilization: { iterations: 400 } }, interaction: { hover: true, tooltipDelay: 80, hideEdgesOnDrag: true } }); if (!m) return; var net = m.net;
     net.once('stabilizationIterationsDone', function () { net.setOptions({ physics: false }); net.fit(); });
     net.on('doubleClick', function (p) { if (p.nodes[0]) location.hash = '#/o/' + p.nodes[0]; });
   }
@@ -587,7 +600,7 @@
   /* ADMIN_PLACEHOLDER */
   /* ---------- 路由 ---------- */
   function route() {
-    closeModal(); var hs = location.hash.replace(/^#\/?/, ''), parts = hs.split('/').map(decodeURIComponent);
+    closeModal(); destroyNets(); var hs = location.hash.replace(/^#\/?/, ''), parts = hs.split('/').map(decodeURIComponent);
     if (parts[0] === 'o' && /^C\d{5,}$/.test(parts[1] || '')) return viewOwner(parts[1]);
     if (parts[0] === 'events') return viewEvents(parts[1]);
     if (parts[0] === 'me') return viewMe();

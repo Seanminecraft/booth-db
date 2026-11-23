@@ -29,6 +29,7 @@ jobs:
         run: |
           node -e "new (require('vm').Script)(require('fs').readFileSync('apps-script/code.gs','utf8'),{filename:'code.gs'})"
           for f in site/assets/*.js; do node --check "$f"; done
+          node tests/run-frontend-tests.js
       - name: Write config.js from repository variables
         env:
           API_URL: ${{ vars.API_URL }}

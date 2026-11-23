@@ -1,5 +1,11 @@
 # 測試報告 — 2026-11-23（Asia/Taipei）
 
+## Phase 4.1 修正：攤主頁「Cannot add item: item with id g:C00846 already exists」— 2026-11-24 00:00（Asia/Taipei）
+
+- 原因：`applyOverlay` 的 `has()` 用 `(x[0] || x)` 判斷是否已存在；關聯攤主是字串，`x[0]` 變成第一個字元「C」，永遠不相等 → 每組雙向關聯都被加兩次（正式資料 507 位有關聯的攤主中 194 位重複，例 C00846 → C00096 出現兩次）。攤主頁用 `g:<ID>` 當 vis 節點 id，重複就丟錯，錯誤一路傳到整頁的 `.catch(fail)`。只有在關聯資料套上覆蓋層（p4 起快照 `reloverlay.json` 一定存在）的有關聯攤主會發生。
+- 修正（只改前端 `site/assets/app.js`）：`has()` 正確比對字串；新增 `mountNet()` 作為唯一建圖入口（節點 id 去重、移除重複／反向／自連／端點不存在的邊、同一容器先銷毀舊圖、建圖失敗只在圖的位置顯示「關聯圖暫時無法顯示」）；`route()` 換頁時銷毀所有圖；攤主頁的關聯／弱關聯清單去重並排除自己；`drawGraph` 包 try/catch。
+- 測試：`node tests/run-frontend-tests.js` 14 passed（新，CI 也會跑）；`tests/ui-regression-graph-dup.js` 29 PASS（C00096、C00846、C00003、C00004、C02293、C00826、C00005、C00968 兩輪換頁、點相關攤主、強制建圖失敗、首頁總覽圖重畫）；舊程式跑同一個 UI 測試 17 FAIL。`run-tests.js` 211 passed；ui-p4-help 25、ui-p3-admin 14、ui-p3-reauth 6、ui-regression-c02492 6 全部 PASS。
+
 ## Phase 4（安全稽核修正、速度、使用說明）— 2026-11-23 22:35（Asia/Taipei）
 
 ### P4-A. 端到端測試（Node 模擬 Apps Script，真實 code.gs `2026-11-23-p4`）
