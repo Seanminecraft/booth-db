@@ -1,0 +1,51 @@
+# 部署到 GitHub Pages。設定（不是密鑰，但集中管理）放在 repository variables：
+#   Settings → Secrets and variables → Actions → Variables：API_URL、OAUTH_CLIENT_ID、CONTACT
+# Settings → Pages → Source 選「GitHub Actions」。
+name: Deploy site
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax check
+        run: |
+          node -e "new (require('vm').Script)(require('fs').readFileSync('apps-script/code.gs','utf8'),{filename:'code.gs'})"
+          for f in site/assets/*.js; do node --check "$f"; done
+      - name: Write config.js from repository variables
+        env:
+          API_URL: ${{ vars.API_URL }}
+          OAUTH_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
+          CONTACT: ${{ vars.CONTACT }}
+        run: |
+          test -n "$API_URL" || { echo "::error::repository variable API_URL is not set"; exit 1; }
+          test -n "$OAUTH_CLIENT_ID" || { echo "::error::repository variable OAUTH_CLIENT_ID is not set"; exit 1; }
+          node -e "
+            const c={API_URL:process.env.API_URL,OAUTH_CLIENT_ID:process.env.OAUTH_CLIENT_ID,SITE_NAME:'攤位資料庫',CONTACT:process.env.CONTACT||'',DEV_LOGIN:false};
+            require('fs').writeFileSync('site/assets/config.js','window.BOOTH_CONFIG='+JSON.stringify(c)+';\n');"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

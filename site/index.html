@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>攤位資料庫 Booth Database</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/config.js"></script>
+<script src="assets/i18n.js"></script>
+<script src="assets/privacy.js"></script>
+<script src="vendor/vis-network.min.js" defer></script>
+<script src="assets/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><span class="logo">🏷️</span><span><span class="h1" data-t="title"></span><span class="sub" data-t="sub"></span></span></a>
+  <nav id="nav">
+    <a class="pill" href="#/" data-route="home" data-t="nav_home"></a>
+    <a class="pill" href="#/events" data-route="events" data-t="nav_events"></a>
+    <a class="pill" href="#/me" data-route="me" data-t="nav_me"></a>
+  </nav>
+  <div class="langs" id="langs"></div>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="app"></main>
+<footer class="foot"><span data-t="footer"></span> ｜ <a href="#/privacy" data-t="privacy_link"></a></footer>
+<div id="modal" class="modal" hidden><div class="mbox" role="dialog" aria-modal="true"><button class="x" id="mclose" aria-label="close">×</button><div id="mbody"></div></div></div>
+<div id="toast" class="toast" hidden></div>
+</body>
+</html>

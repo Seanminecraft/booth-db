@@ -1,0 +1,5 @@
+node_modules/
+test-fixtures/
+*.fixture.json
+tests/ffk19_expected_writes.json
+.DS_Store
