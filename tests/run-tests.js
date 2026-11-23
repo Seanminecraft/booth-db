@@ -153,9 +153,9 @@ const evData = get({ action: 'event', code: 'FFK19' });
 ok('event API 回傳整理表', evData.ok && evData.data.booths.length >= 630, evData.ok ? evData.data.booths.length + ' 攤' : evData.error);
 ok('event API 不回傳非公開縮圖', evData.data.booths.filter(b => b.thumb).every(b => PUBLIC.has(b.thumb)));
 const fills = [
-  { p: pick[0], changes: { '販售資訊': '【FFK19 測試】緣結：吊飾、飯友；秋月祁：立牌', '預告': 'https://x.com/test_account/status/1111111111111111111' } },
+  { p: pick[0], changes: { '販售資訊': '💠FFK19 測試【緣結：吊飾、飯友；秋月祁：立牌】', '預告': 'https://x.com/test_account/status/1111111111111111111' } },
   { p: pick[1], changes: { '商品年齡分類': '一般', '試閱': 'https://www.pixiv.net/artworks/123456789' } },
-  { p: pick[2], changes: { '創作者類型': '繪師', '販售資訊': '=HYPERLINK("https://evil.example","點我")' } }];
+  { p: pick[2], changes: { '創作者類型': '繪師', '特殊標籤或備註': '=1+1' } }];
 const evWritesStart = env.writes.length;
 fills.forEach(f => { const r = post({ action: 'eventfill', session: L3.session, ownerId: f.p.id, event: 'FFK19', booth: f.p.name, changes: f.changes }); ok('審核制：' + f.p.name + ' 填寫進入待審核', r.ok && r.data.queued === Object.keys(f.changes).length && r.data.applied === 0, JSON.stringify(r.data || r.error)); });
 ok('審核前整理表未被寫入', env.writes.slice(evWritesStart).every(w => w.file !== FFK));
@@ -165,7 +165,7 @@ edits().forEach((r, i) => { if (r[2] === '場次填寫' && r[12] === '待審核'
 G.menuApplyApproved();
 const evWrites = env.writes.slice(evWritesStart).filter(w => w.file === FFK);
 const H = evSh.data[0];
-const expect = []; fills.forEach(f => Object.keys(f.changes).forEach(k => { const col = H.indexOf(k); expect.push({ a1: G.colLetter_(col) + f.p.row, booth: f.p.name, field: k, value: k === '販售資訊' && /^=/.test(f.changes[k]) ? "'" + f.changes[k] : f.changes[k] }); }));
+const expect = []; fills.forEach(f => Object.keys(f.changes).forEach(k => { const col = H.indexOf(k); expect.push({ a1: G.colLetter_(col) + f.p.row, booth: f.p.name, field: k, value: /^=/.test(f.changes[k]) ? "'" + f.changes[k] : f.changes[k] }); }));
 ok('套用後寫入正確的格子（列＝攤位、欄＝欄位標題）', expect.every(x => evWrites.some(w => w.a1 === x.a1 && w.value === x.value)), expect.map(x => x.a1).join(' '));
 ok('只寫入預期的格子', evWrites.length === expect.length, evWrites.length + ' 次寫入');
 fs.writeFileSync(path.join(__dirname, 'ffk19_expected_writes.json'), JSON.stringify(expect, null, 1));
@@ -216,7 +216,6 @@ const n = post({ action: 'withdraw', session: L3.session });
 ok('使用者撤回 → 申請者代號清除', n.ok && n.done > 0 && !JSON.stringify(sheet(DB_ID, '認領申請').data).includes(uid3) && !JSON.stringify(sheet(DB_ID, '修改申請').data).includes(uid3), n.done + ' 格');
 const all = JSON.stringify(Object.values(env.files).map(f => f.sheets.map(s => s.data)));
 ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@example.com') && !all.includes('Real Name') && !all.includes('1234567890-sub-A'));
-ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 
 
 // ===== 12. 回歸：只有出展紀錄、主資料庫沒有列的攤主（例：C02492 加帕利天藍怪預警中心）=====
@@ -249,4 +248,143 @@ ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.
   const NO = post({ action: 'login', idToken: 'fake:not-owner' });
   ok('回歸：非管理者不能用新列模式', post({ action: 'edit', session: NO.session, ownerId: oid, rowName: '', changes: { '筆名': 'x' } }).ok === false);
 }
+
+// ===== 13. 站長後台（多位站長、二審、併發、直接修改、關聯判定、合併、稽核） =====
+{
+  const A = b => post(b), dbS = sheet(DB_ID, '新攤位資料庫'), hdr = dbS.data[0], col = h => hdr.indexOf(h), idc = col('攤主ID');
+  const login = sub => post({ action: 'login', idToken: 'fake:' + sub });
+  const X1 = login('admin-one'), X2 = login('admin-two'), NO = login('plain-user-13');
+  ok('站長：未加入前沒有權限', A({ action: 'admin.summary', session: X1.session }).ok === false && login('admin-one').me.admin === false);
+  // 初始化（試算表擁有者）
+  const nFiles = Object.keys(env.files).length;
+  env.activeUser = 'intruder@example.invalid'; G.menuInitAdmin(); ok('站長：非擁有者不能初始化', !sheet(DB_ID, '關聯判定') && /只有試算表擁有者/.test(env.ui.alerts.pop()));
+  env.activeUser = undefined; G.menuInitAdmin();
+  ok('站長：初始化建立 3 個分頁', ['站長操作紀錄', '關聯判定', 'ID 合併對照'].every(n => !!sheet(DB_ID, n)));
+  ok('站長：初始化先備份整份試算表（Drive 副本）', Object.keys(env.files).length === nFiles + 1 && /備份副本 ID：copy_/.test(env.ui.alerts[env.ui.alerts.length - 1]));
+  const before13 = JSON.stringify(sheet(DB_ID, '新攤位資料庫').data.length); G.menuInitAdmin(); ok('站長：重複初始化不覆蓋既有分頁', /都已存在/.test(env.ui.alerts.pop()) && JSON.stringify(sheet(DB_ID, '新攤位資料庫').data.length) === before13);
+  // 配對
+  const p1 = A({ action: 'admin.pairStart', session: X1.session, label: '小編A' }); ok('站長：取得配對碼', p1.ok && /^[A-Z0-9]{8}$/.test(p1.data.code), p1.data && p1.data.code);
+  env.ui.prompts.push('WRONG123'); G.menuAddAdmin(); ok('站長：錯誤配對碼被拒', /無效或已過期/.test(env.ui.alerts.pop()));
+  env.activeUser = 'intruder@example.invalid'; env.ui.prompts.push(p1.data.code); G.menuAddAdmin(); ok('站長：非擁有者不能新增站長', /只有試算表擁有者/.test(env.ui.alerts.pop())); env.ui.prompts.length = 0; env.activeUser = undefined;
+  env.ui.prompts.push(p1.data.code); G.menuAddAdmin();
+  const p2 = A({ action: 'admin.pairStart', session: X2.session, label: '小編B' }); env.ui.prompts.push(p2.data.code); G.menuAddAdmin();
+  const adm = JSON.parse(env.props.ADMIN_UIDS);
+  ok('站長：配對成功 2 位（第一位為擁有者）', adm.length === 2 && adm[0].role === 'owner' && adm[1].role === 'admin' && adm[0].label === '小編A', adm.map(a => a.label + '/' + a.role).join(' '));
+  ok('站長：ADMIN_UIDS 只存 HMAC 代號（無 email）', !/@|example/.test(env.props.ADMIN_UIDS));
+  ok('站長：配對碼只能用一次', (env.ui.prompts.push(p1.data.code), G.menuAddAdmin(), /無效或已過期/.test(env.ui.alerts.pop())));
+  const S1 = A({ action: 'admin.summary', session: X1.session });
+  ok('站長：summary 可讀、標示兩人規則', S1.ok && S1.data.twoAdmin === true && S1.data.admins.length === 2 && S1.data.role === 'owner', JSON.stringify(S1.error || S1.data.counts));
+  ok('站長：me 回傳 admin 旗標', A({ action: 'me', session: X1.session }).me.admin === true && A({ action: 'me', session: NO.session }).me.admin === false);
+  ok('站長：一般帳號被拒（伺服器檢查）', /沒有站長權限/.test(A({ action: 'admin.queue', session: NO.session }).error));
+  ok('站長：偽造 session 被拒', A({ action: 'admin.queue', session: X1.session.replace(/.$/, c => c === 'A' ? 'B' : 'A') }).ok === false);
+  env.props.ADMIN_WEB_DISABLED = '1'; ok('站長：緊急停用開關', /已停用/.test(A({ action: 'admin.summary', session: X1.session }).error)); delete env.props.ADMIN_WEB_DISABLED;
+  const u1 = G.readSession_(X1.session), u2 = G.readSession_(X2.session);
+  const old1 = G.makeSession_(u1, Date.now() - 3 * 3600e3), stale1 = G.makeSession_(u1, Date.now() - 20 * 60e3);
+  ok('站長：登入超過 2 小時需重新登入', /^REAUTH/.test(A({ action: 'admin.summary', session: old1 }).error));
+  // 測試對象：有 TWITTER (1)、筆名空白、IG 有值的攤主
+  const used = new Set(edits().map(r => r[3]).concat(claims().map(r => r[2])));
+  const cands = dbS.data.slice(1).filter(r => r[idc] && !used.has(r[idc]) && /^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]+\/?$/.test(r[col('TWITTER (1)')]) && !r[col('筆名')] && r[col('IG')] && dbS.data.filter(x => x[idc] === r[idc]).length === 1);
+  const T = cands[0], T2 = cands[1], T3 = cands[2], tid = T[idc];
+  const OW = login('owner-13');
+  const tw = T[col('TWITTER (1)')], proof = tw.replace(/^https:\/\/(x|twitter)\.com/, m => m.includes('twitter') ? 'https://x.com' : 'https://twitter.com') + '/status/1234567890';
+  A({ action: 'claim', session: OW.session, ownerId: tid, proofUrl: proof, note: '本人' });
+  const crow = claims().find(r => r[2] === tid && r[4] === G.readSession_(OW.session));
+  ok('認領：twitter.com 與 x.com 視為同一帳號', /相符/.test(crow[8]), tw + ' vs ' + proof);
+  const q0 = A({ action: 'admin.queue', session: X1.session }); const qc = q0.data.claims.find(c => c.id === crow[0]);
+  ok('站長：待審核列出認領（含 SNS 比對）', !!qc && qc.match === true && qc.known.length > 0);
+  const dc = A({ action: 'admin.decide', session: X1.session, ids: [crow[0]], decision: 'approve' });
+  ok('站長：核准認領', dc.ok && dc.data.done === 1 && claims().find(r => r[0] === crow[0])[9] === '核准' && /小編A/.test(claims().find(r => r[0] === crow[0])[11]));
+  ok('站長：已處理的認領再按顯示由誰處理', (() => { const r = A({ action: 'admin.decide', session: X2.session, ids: [crow[0]], decision: 'reject' }); return r.ok && r.data.handled.length === 1 && /小編A/.test(r.data.handled[0].by); })());
+  const newTw = 'https://x.com/new_handle_' + tid.toLowerCase();
+  const e13 = A({ action: 'edit', session: OW.session, ownerId: tid, rowName: T[col('攤位名稱')], changes: { '筆名': '站長測試筆名', 'TWITTER (1)': newTw } });
+  ok('站長：攤主送出修改（含身分欄位）', e13.ok && e13.data.queued === 2, JSON.stringify(e13.error || e13.data));
+  const q1 = A({ action: 'admin.queue', session: X1.session }), bt = q1.data.batches.find(b => b.batch === e13.data.batch);
+  const penId = bt.items.find(i => i.field === '筆名').id, twId = bt.items.find(i => i.field === 'TWITTER (1)').id;
+  ok('站長：佇列分批、標示身分欄位與將寫入的格子', bt.items.length === 2 && bt.items.find(i => i.id === twId).sensitive && /新攤位資料庫!/.test(bt.items[0].cell), bt.items.map(i => i.field + ':' + i.cell).join(' '));
+  const rowT = dbS.data.findIndex(r => r[idc] === tid) + 1, penA1 = G.colLetter_(col('筆名')) + rowT;
+  const w0 = env.writes.length;
+  const d1 = A({ action: 'admin.decide', session: X1.session, ids: [penId], decision: 'approve' }), d2 = A({ action: 'admin.decide', session: X2.session, ids: [penId], decision: 'approve' });
+  const penWrites = env.writes.slice(w0).filter(w => w.sheet === '新攤位資料庫' && w.a1 === penA1);
+  ok('併發：兩位站長同時核准同一筆，只套用一次', d1.data.done === 1 && d2.data.done === 0 && penWrites.length === 1, penWrites.length + ' 次寫入 ' + penA1);
+  ok('併發：第二位看到「已由 小編A 處理」', d2.data.handled.length === 1 && /小編A/.test(d2.data.handled[0].by), JSON.stringify(d2.data.handled));
+  ok('站長：批次核准略過身分欄位', A({ action: 'admin.decide', session: X1.session, ids: [twId], decision: 'approve' }).data.skipped === 1);
+  ok('站長：身分欄位核准必填驗證方式', /必須填寫驗證方式/.test(A({ action: 'admin.decide', session: X1.session, ids: [twId], decision: 'approve2' }).error));
+  ok('站長：高風險操作需 10 分鐘內重新登入', /^REAUTH/.test(A({ action: 'admin.decide', session: stale1, ids: [twId], decision: 'approve2', note: 'x' }).error));
+  const a1 = A({ action: 'admin.decide', session: X1.session, ids: [twId], decision: 'approve2', note: '已在原 X 帳號私訊確認' });
+  ok('二審：第一位站長核准後狀態「待第二位確認」，尚未寫入', a1.data.waiting === 1 && edits().find(r => r[0] === twId)[12] === '待第二位確認' && dbS.data[rowT - 1][col('TWITTER (1)')] === tw);
+  ok('二審：同一位站長不能自己二審', A({ action: 'admin.decide', session: X1.session, ids: [twId], decision: 'approve2', note: '再按一次' }).data.skipped === 1);
+  ok('二審：summary 提示另一位站長有待確認', A({ action: 'admin.summary', session: X2.session }).data.needsMySecond >= 1);
+  const a2 = A({ action: 'admin.decide', session: X2.session, ids: [twId], decision: 'approve2', note: '我也用 X 私訊確認' });
+  ok('二審：第二位站長確認後套用', a2.data.done === 1 && dbS.data[rowT - 1][col('TWITTER (1)')] === newTw && edits().find(r => r[0] === twId)[12] === '已套用', JSON.stringify(a2.data));
+  // 擁有者覆核
+  const e14 = A({ action: 'edit', session: OW.session, ownerId: tid, rowName: T[col('攤位名稱')], changes: { 'IG': 'https://www.instagram.com/override_test_13/' } }), igId = edits().find(r => r[18] === e14.data.batch)[0];
+  ok('覆核：一般站長不能覆核', /只有擁有者站長/.test(A({ action: 'admin.decide', session: X2.session, ids: [igId], decision: 'override', note: '急件處理' }).error));
+  ok('覆核：必填理由', /理由/.test(A({ action: 'admin.decide', session: X1.session, ids: [igId], decision: 'override', note: '' }).error));
+  const ov = A({ action: 'admin.decide', session: X1.session, ids: [igId], decision: 'override', note: '小編B 請假，已電話確認' });
+  ok('覆核：擁有者站長覆核後套用並記錄理由', ov.data.done === 1 && /擁有者覆核/.test(edits().find(r => r[0] === igId)[14]) && dbS.data[rowT - 1][col('IG')] === 'https://www.instagram.com/override_test_13/');
+  // 站長直接修改任何攤主
+  const t2 = T2[idc], row2 = dbS.data.findIndex(r => r[idc] === t2) + 1;
+  ok('直接修改：一樣擋縮網址', /縮網址/.test(A({ action: 'admin.ownerEdit', session: X2.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { '官方網站': 'https://bit.ly/abc' } }).error));
+  ok('直接修改：一樣擋白名單外網域', /只接受/.test(A({ action: 'admin.ownerEdit', session: X2.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { 'IG': 'https://evil.example/x' } }).error));
+  const de = A({ action: 'admin.ownerEdit', session: X2.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { '筆名': '=1+1', '創作者類型': '模型製作' } });
+  ok('直接修改：一般欄位立即套用（不進佇列）', de.ok && de.data.applied === 2 && dbS.data[row2 - 1][col('筆名')] === "'=1+1", JSON.stringify(de.error || de.data));
+  const de2 = A({ action: 'admin.ownerEdit', session: X2.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { 'TWITTER (1)': 'https://x.com/admin_direct_' + t2.toLowerCase() } });
+  ok('直接修改：身分欄位在 2 位站長時需第二位確認', de2.data.waiting === 1 && dbS.data[row2 - 1][col('TWITTER (1)')] === T2[col('TWITTER (1)')]);
+  const de2b = A({ action: 'admin.decide', session: X1.session, ids: [de2.data.items[0].id], decision: 'approve2', note: '看過攤主公告' });
+  ok('直接修改：第二位站長確認後套用', de2b.data.done === 1 && /admin_direct_/.test(dbS.data[row2 - 1][col('TWITTER (1)')]));
+  const al = sheet(DB_ID, '站長操作紀錄').data.slice(1);
+  ok('稽核：記錄站長、動作、舊值→新值', al.some(r => r[2] === '小編B' && r[3] === '直接修改' && r[5] === '筆名' && r[7] === "'=1+1") && al.some(r => r[2] === '小編A' && r[3] === '一審（待第二位確認）'), al.length + ' 列');
+  const penAd = de.data.items.find(i => i.field === '筆名').id;
+  const rv = A({ action: 'admin.revert', session: X1.session, ids: [penAd] });
+  ok('直接修改：可復原', rv.data.ok === 1 && dbS.data[row2 - 1][col('筆名')] === '' && edits().find(r => r[0] === penAd)[12] === '已復原');
+  ok('復原：再按一次不會重複', A({ action: 'admin.revert', session: X2.session, ids: [penAd] }).data.already === 1);
+  const au = A({ action: 'admin.audit', session: X1.session, q: t2 });
+  ok('稽核 API：可搜尋、標示可復原', au.ok && au.data.rows.length >= 3 && au.data.rows.some(r => r.revertable) && au.data.rows.every(r => r.admin), au.data.rows.length + ' 筆');
+  // 站長直接修改場次整理表（任何攤位）
+  const evSh2 = env.files[FFK].getSheetByName('攤位整理表 請在此填寫資訊'), EH = evSh2.data[0], sc = EH.indexOf('販售資訊');
+  const target = evSh2.data.slice(1).findIndex(r => r[0] && evSh2.data.filter(x => x[0] === r[0]).length === 1 && !edits().some(e => String(e[5]).split('｜')[0] === r[0])) + 2, tb = evSh2.data[target - 1];
+  ok('場次：販售資訊必須是「💠類別【內容】」', /💠類別【內容】/.test(A({ action: 'admin.eventEdit', session: X1.session, event: 'FFK19', booth: tb[0], changes: { '販售資訊': '新刊 畫冊' } }).error));
+  ok('場次：讀取後被別人改過會被擋', /剛被別人修改過/.test(A({ action: 'admin.eventEdit', session: X1.session, event: 'FFK19', booth: tb[0], expect: { '販售資訊': 'stale' }, changes: { '販售資訊': '💠新刊【x】' } }).error));
+  const sales = '💠 新刊【畫冊 Vol.2 NT$300】\n💠周邊【 壓克力立牌、明信片 】';
+  const ee = A({ action: 'admin.eventEdit', session: X1.session, event: 'FFK19', booth: tb[0], expect: { '販售資訊': tb[sc] || '' }, changes: { '販售資訊': sales, '預告': 'https://x.com/someone/status/1999999999999999999' } });
+  ok('場次：站長直接寫入任何攤位（格式自動整理）', ee.ok && ee.data.applied === 2 && evSh2.data[target - 1][sc] === '💠新刊【畫冊 Vol.2 NT$300】\n💠周邊【壓克力立牌、明信片】', JSON.stringify(ee.error || ee.data) + ' ' + JSON.stringify(evSh2.data[target - 1][sc]));
+  const salesId = ee.data.items.find(i => i.field === '販售資訊').id;
+  ok('場次：寫入的格子正確並記錄位置', ee.data.items.find(i => i.field === '販售資訊').where === 'FFK19!' + G.colLetter_(sc) + target);
+  const er = A({ action: 'admin.revert', session: X2.session, ids: [salesId] });
+  ok('場次：可復原（跨檔案）', er.data.ok === 1 && evSh2.data[target - 1][sc] === (tb[sc] || ''));
+  // 關聯判定、合併、ID 對照
+  const ownersNow = get({ action: 'index' }).data.owners, logS = sheet(DB_ID, '場次出展紀錄'), lid = logS.data[0].indexOf('攤主ID');
+  const mB = ownersNow.find(o => o[7] === 0 && o[4].length === 1 && !used.has(o[0]) && logS.data.filter(r => r[lid] === o[0]).length === 1)[0], mA = T3[idc];
+  ok('關聯：一般站長未重新登入不能合併', /^REAUTH/.test(A({ action: 'admin.relationDecide', session: stale1, a: mA, b: mB, decision: 'merge' }).error));
+  const OB = login('owner-of-b'); A({ action: 'claim', session: OB.session, ownerId: mB, method: 'dm' }); A({ action: 'admin.decide', session: X1.session, ids: [claims().find(r => r[2] === mB && r[4] === G.readSession_(OB.session))[0]], decision: 'approve' });
+  const mg = A({ action: 'admin.relationDecide', session: X1.session, a: mA, b: mB, decision: 'merge', note: '同一位作者（站長確認）' });
+  ok('合併：B 的列改為 A 的攤主ID', mg.ok && mg.data.moved >= 1 && !logS.data.some(r => r[lid] === mB), JSON.stringify(mg.error || mg.data));
+  ok('合併：舊ID 自動導向新ID', get({ action: 'owner', id: mB }).data.redirect === mA);
+  ok('合併：ID 合併對照有記錄', sheet(DB_ID, 'ID 合併對照').data.some(r => r[0] === mB && r[1] === mA && r[5] === '有效'));
+  ok('合併：原本管理 B 的人可管理 A', A({ action: 'me', session: OB.session }).me.owned.includes(mA));
+  ok('合併：關聯覆蓋層含合併', get({ action: 'relations' }).data.merged[mB] === mA);
+  const mr = A({ action: 'admin.revert', session: X1.session, batch: mg.data.batch });
+  ok('合併：整批復原', mr.data.ok === mg.data.moved && logS.data.some(r => r[lid] === mB) && !get({ action: 'owner', id: mB }).data.redirect && !get({ action: 'relations' }).data.merged[mB], JSON.stringify(mr.data));
+  const un = A({ action: 'admin.relationDecide', session: X2.session, a: 'C00002', b: 'C00158', decision: 'unrelated', note: '只是都用買動漫賣場' });
+  ok('關聯：確認無關後，公開覆蓋層移除此配對', un.ok && get({ action: 'relations' }).data.unrelated.some(p => p[0] === 'C00002' && p[1] === 'C00158'));
+  ok('關聯：即時共用帳號關聯是陣列', Array.isArray(get({ action: 'relations' }).data.live));
+  const rel13 = A({ action: 'admin.relations', session: X1.session }); ok('關聯：後台可讀判定紀錄', rel13.ok && rel13.data.decisions.length >= 2);
+  // 停權
+  const su = A({ action: 'admin.suspend', session: X1.session, target: G.readSession_(OW.session), note: '測試停權' });
+  ok('停權：網站後台停權帳號', su.ok && su.data.n >= 1 && A({ action: 'me', session: OW.session }).me.suspended === true);
+  ok('停權：被停權後不能修改', A({ action: 'edit', session: OW.session, ownerId: tid, rowName: '', changes: { '筆名': 'x' } }).ok === false);
+  A({ action: 'admin.suspend', session: X1.session, target: G.readSession_(OW.session), restore: true });
+  ok('停權：恢復後回到原本的管理權', A({ action: 'me', session: OW.session }).me.owned.includes(tid) && !A({ action: 'me', session: OW.session }).me.suspended);
+  ok('停權：列表', A({ action: 'admin.suspensions', session: X1.session }).ok);
+  // 場次設定
+  ok('場次：後台讀取整理中場次統計', (() => { const r = A({ action: 'admin.events', session: X1.session }); return r.ok && r.data.active[0].booths > 600; })());
+  ok('模式：切換並記錄', A({ action: 'admin.mode', session: X2.session, mode: 'queue' }).data.mode === 'queue');
+  // 站長管理
+  ok('站長：一般站長不能移除擁有者', /不能移除|只有擁有者/.test(A({ action: 'admin.adminRemove', session: X2.session, u: u1 }).error));
+  const rm = A({ action: 'admin.adminRemove', session: X1.session, u: u2 });
+  ok('站長：擁有者移除站長後立即失效', rm.ok && /沒有站長權限/.test(A({ action: 'admin.summary', session: X2.session }).error));
+  ok('站長：只剩 1 位時身分欄位由唯一站長核准', (() => { const e = A({ action: 'admin.ownerEdit', session: X1.session, ownerId: t2, rowName: T2[col('攤位名稱')], changes: { 'IG': 'https://www.instagram.com/single_admin_13/' } }); return e.ok && e.data.applied === 1; })());
+  ok('稽核：所有網站後台動作都有站長暱稱', sheet(DB_ID, '站長操作紀錄').data.slice(1).every(r => r[2]));
+}
+ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

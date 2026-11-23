@@ -13,19 +13,28 @@
  *   ALERT_EMAIL            選填。可疑修改通知信箱；未設定時寄給本指令碼擁有者。
  *   SITE_ORIGIN            選填。網站網址（例：https://xxx.github.io/booth-db），只用於通知信內的連結。
  *   NEXT_OWNER_SEQ         自動維護。新攤主ID流水號。
+ *   ADMIN_UIDS             自動維護。站長帳號清單（JSON：[{u:HMAC代號, label:暱稱, role:owner|admin, added}]），只能用選單「👑 新增站長帳號」配對加入。
+ *   ADMIN_WEB_DISABLED     選填。設為 1 時網站後台全部停用（緊急開關），只能用試算表選單操作。
  *
  * 部署：部署 › 新增部署 › 類型「網頁應用程式」；執行身分「我」；存取權「所有人」。
- * 版本：2026-11-23 phase2
+ * 版本：2026-11-23 phase3（站長後台、多位站長、關聯判定、ID 合併對照）
  */
 
 /* ============================== 常數 ============================== */
-var VERSION = '2026-11-23-p2.1';
+var VERSION = '2026-11-23-p3';
 var SH = {
   DB: '新攤位資料庫',
   LOG: '場次出展紀錄',
   CLAIM: '認領申請',
-  EDIT: '修改申請'
+  EDIT: '修改申請',
+  ALOG: '站長操作紀錄',
+  REL: '關聯判定',
+  MAP: 'ID 合併對照'
 };
+var ALOG_HDR = ['時間', '站長代號', '站長暱稱', '動作', '對象', '欄位', '舊值', '新值', '位置', '批次ID', '相關申請ID', '備註'];
+var REL_HDR = ['判定ID', '時間', '攤主A（保留）', '攤主B', '判定', '站長代號', '站長暱稱', '備註', '狀態', '批次ID'];
+var MAP_HDR = ['舊攤主ID', '新攤主ID', '時間', '站長代號', '批次ID', '狀態'];
+var ADMIN_SESSION_MS = 2 * 3600 * 1000, FRESH_MS = 10 * 60 * 1000;
 var DB_ID_HEADER = '攤主ID';
 var DB_NAME_HEADER = '攤位名稱';
 /** 新攤位資料庫中，攤主可申請修改的欄位（攤位名稱屬敏感欄位，需二次驗證）。 */
@@ -274,12 +283,25 @@ function validateField_(field, value, oldValue) {
     }
     v = clean.join('\n');
   }
+  if (field === '販售資訊' && v) { var sf = salesFormat_(v); if (!sf.ok) { out.ok = false; out.block = sf.error; return out; } v = sf.value; }
   if (str_(oldValue).trim() && v !== str_(oldValue).trim()) {
     out.risk += v ? 15 : 25; out.notes.push(v ? '取代既有值' : '清空既有值');
     if (IDENTITY_FIELDS.indexOf(field) >= 0) { out.risk += 25; out.notes.push('身分欄位：需二次驗證'); out.sensitive = true; }
   }
   if (field === '攤位名稱' && v !== str_(oldValue).trim()) { out.sensitive = true; if (out.notes.indexOf('身分欄位：需二次驗證') < 0) out.notes.push('身分欄位：需二次驗證'); }
   out.value = v; return out;
+}
+/** 販售資訊格式：每行一項「💠類別【內容】」。前後空白、全形空白自動整理；不符合的行回傳錯誤（指出第幾行）。 */
+var SALES_LINE = /^💠\s*([^【】\n]*?)\s*【\s*([^【】\n]*?)\s*】$/;
+function salesFormat_(v) {
+  var lines = str_(v).replace(/\r/g, '').split('\n').map(function (x) { return x.replace(/\u3000/g, ' ').trim(); }).filter(Boolean), out = [];
+  if (lines.length > 40) return { ok: false, error: '販售資訊最多 40 行' };
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(SALES_LINE);
+    if (!m || !m[1] || !m[2]) return { ok: false, error: '販售資訊第 ' + (i + 1) + ' 行格式不符，請用「💠類別【內容】」，例如：💠新刊【畫冊 Vol.2 NT$300】' };
+    out.push('💠' + m[1] + '【' + m[2] + '】');
+  }
+  return { ok: true, value: out.join('\n') };
 }
 /** Google Safe Browsing v4（若有設定金鑰）。回傳 {checked, bad[]}。 */
 function safeBrowsing_(urls) {
@@ -293,6 +315,7 @@ function safeBrowsing_(urls) {
 }
 
 /* ============================== 驗證身分（不保存 email / 姓名） ============================== */
+var LAST_AUTH_AT_ = 0;
 function verifyIdToken_(tok) {
   var cid = prop_('OAUTH_CLIENT_ID', ''); if (!cid) throw new Error('OAUTH_CLIENT_ID 未設定');
   var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(tok), { muteHttpExceptions: true });
@@ -301,16 +324,19 @@ function verifyIdToken_(tok) {
   if (j.aud !== cid) throw new Error('登入驗證失敗（aud）');
   if (j.iss !== 'accounts.google.com' && j.iss !== 'https://accounts.google.com') throw new Error('登入驗證失敗（iss）');
   if (+j.exp * 1000 < Date.now()) throw new Error('登入已過期');
+  LAST_AUTH_AT_ = j.iat ? Math.min(Date.now(), +j.iat * 1000) : Date.now(); // Google 實際完成登入的時間（站長高風險操作用）
   return uidOf_(j.sub); // 只取 sub，立即雜湊；email、姓名、頭像都不讀取也不保存
 }
 function uidOf_(sub) { return 'u_' + b64u_(hmac_('sub:' + sub, secret_())).slice(0, 22); }
-function makeSession_(uid) { var p = b64u_(Utilities.newBlob(JSON.stringify({ u: uid, e: Date.now() + 12 * 3600 * 1000 })).getBytes()); return p + '.' + b64u_(hmac_('sess:' + p, secret_())); }
-function readSession_(tok) {
+/** session = base64url({u, e:到期, t:Google 驗證時間}) + HMAC。t 用於站長 2 小時上限與「10 分鐘內重新登入」檢查。 */
+function makeSession_(uid, authAt) { var p = b64u_(Utilities.newBlob(JSON.stringify({ u: uid, e: Date.now() + 12 * 3600 * 1000, t: authAt || Date.now() })).getBytes()); return p + '.' + b64u_(hmac_('sess:' + p, secret_())); }
+function readSessionObj_(tok) {
   var parts = str_(tok).split('.'); if (parts.length !== 2) throw new Error('請重新登入');
   if (b64u_(hmac_('sess:' + parts[0], secret_())) !== parts[1]) throw new Error('請重新登入');
   var j = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0] + '==='.slice((parts[0].length + 3) % 4))).getDataAsString());
-  if (j.e < Date.now()) throw new Error('登入已過期，請重新登入'); return j.u;
+  if (j.e < Date.now()) throw new Error('登入已過期，請重新登入'); return j;
 }
+function readSession_(tok) { return readSessionObj_(tok).u; }
 function claimCode_(uid, ownerId) { return 'JP-' + b64u_(hmac_('claim:' + uid + ':' + ownerId, secret_())).replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase(); }
 
 /** 讀取認領狀態：回傳 {owned:[攤主ID], pending:[...], suspended:bool} */
@@ -319,6 +345,9 @@ function claimsOf_(uid) {
   var v = sh.getRange(2, 1, n - 1, 14).getDisplayValues();
   v.forEach(function (r) { if (r[4] !== uid) return; var st = r[9];
     if (st === '核准') out.owned.push(r[2]); else if (st === '待審核') out.pending.push(r[2]); else if (st === '停權') out.suspended = true; else if (st === '拒絕') out.rejected.push(r[2]); });
+  // 攤主合併後：管理舊ID的人自動管理新ID（ID 合併對照）
+  var mm = mergeMap_(); out.owned = out.owned.map(function (x) { return resolveId_(x, mm); }).filter(function (x, i, a) { return a.indexOf(x) === i; });
+  out.pending = out.pending.map(function (x) { return resolveId_(x, mm); });
   return out;
 }
 function ownerSuspended_(ownerId) {
@@ -344,7 +373,9 @@ function doGet(e) {
   try {
     if (a === 'meta') return json_({ ok: true, version: VERSION, v: version_(), active: activeEvents_().map(publicEvent_), fillMode: fillMode_(), clientId: prop_('OAUTH_CLIENT_ID', '') });
     if (a === 'index') return json_({ ok: true, data: cached_('index', CACHE_TTL, buildIndex_) });
-    if (a === 'owner') return json_({ ok: true, data: cached_('owner:' + p.id, CACHE_TTL, function () { return ownerDetail_(p.id); }) });
+    if (a === 'owner') { var to = resolveId_(str_(p.id), mergeMap_()); if (to !== str_(p.id)) return json_({ ok: true, data: { id: p.id, redirect: to } });
+      return json_({ ok: true, data: cached_('owner:' + p.id, CACHE_TTL, function () { return ownerDetail_(p.id); }) }); }
+    if (a === 'relations') return json_({ ok: true, data: cached_('reloverlay', CACHE_TTL, relOverlay_) });
     if (a === 'event') return json_({ ok: true, data: eventData_(p.code) });
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
@@ -354,7 +385,8 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     var a = body.action;
-    if (a === 'login') { var uid0 = verifyIdToken_(body.idToken); rate_(uid0, 'login'); return json_({ ok: true, session: makeSession_(uid0), me: meInfo_(uid0) }); }
+    if (a === 'login') { var uid0 = verifyIdToken_(body.idToken); rate_(uid0, 'login'); return json_({ ok: true, session: makeSession_(uid0, LAST_AUTH_AT_), me: meInfo_(uid0) }); }
+    if (/^admin\./.test(str_(a))) return json_(adminApi_(a, body, lock));
     var uid = readSession_(body.session);
     if (a === 'me') return json_({ ok: true, me: meInfo_(uid) });
     if (a === 'preview') { rate_(uid, 'thumb'); var pv = {}, ch = body.changes || {}, old = body.old || {};
@@ -373,27 +405,28 @@ function doPost(e) {
   } catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
   finally { try { lock.releaseLock(); } catch (x) { } }
 }
-function meInfo_(uid) { var c = claimsOf_(uid); return { uid: uid.slice(0, 8) + '…', owned: c.owned, pending: c.pending, suspended: c.suspended, fillMode: fillMode_(), active: activeEvents_().map(publicEvent_) }; }
+function meInfo_(uid) { var c = claimsOf_(uid), ad = adminOf_(uid); return { uid: uid.slice(0, 8) + '…', owned: c.owned, pending: c.pending, suspended: c.suspended, fillMode: fillMode_(), active: activeEvents_().map(publicEvent_), admin: !!ad && prop_('ADMIN_WEB_DISABLED', '') !== '1', adminRole: ad ? ad.role : '' }; }
 
 function submitClaim_(uid, b) {
   var id = str_(b.ownerId); if (!/^C\d{5,}$/.test(id)) throw new Error('攤主ID 格式錯誤');
   var c = claimsOf_(uid); if (c.owned.indexOf(id) >= 0) return { status: '已核准' }; if (c.pending.indexOf(id) >= 0) return { status: '待審核', code: claimCode_(uid, id) };
   if (ownerSuspended_(id)) throw new Error('此攤主目前鎖定中，請聯絡站長');
   var proof = str_(b.proofUrl).trim(); if (proof) { var vf = validateField_('其他連結', proof, ''); if (!vf.ok) throw new Error('驗證連結：' + vf.block); proof = vf.value; }
-  var detail = ownerDetail_(id), known = []; detail.dbRows.forEach(function (r) { Object.keys(r.fields).forEach(function (h) { splitUrls_(r.fields[h]).forEach(function (u) { known.push(hostOf_(u) + pathHead_(u)); }); }); });
-  var match = proof && known.some(function (k) { return k && (hostOf_(proof) + pathHead_(proof)) === k; });
+  var detail = ownerDetail_(id), known = []; detail.dbRows.forEach(function (r) { Object.keys(r.fields).forEach(function (h) { splitUrls_(r.fields[h]).forEach(function (u) { known.push(snsKey_(u)); }); }); });
+  var match = proof && known.some(function (k) { return k && snsKey_(proof) === k; });
   var name = detail.dbRows.length ? detail.dbRows[0].fields[DB_NAME_HEADER] : (detail.history.length ? detail.history[detail.history.length - 1].name : '');
   var code = claimCode_(uid, id), method = b.method === 'dm' ? '私訊官方粉專' : 'SNS 貼文';
   sheet_(SH.CLAIM).appendRow([newId_('CL'), now_(), id, safeCell_(name), uid, method, safeCell_(proof), code, safeCell_(str_(b.note).slice(0, 300)) + (match ? '｜貼文帳號與資料庫相符' : (proof ? '｜⚠ 貼文帳號不在資料庫內' : '')), '待審核', '', '', 'owner', now_()]);
   return { status: '待審核', code: code };
 }
 function pathHead_(u) { var m = String(u).match(/^https?:\/\/[^\/]+\/(@?[A-Za-z0-9_.\-]+)/); return m ? '/' + m[1].toLowerCase() : ''; }
+/** 比對用的帳號鍵：同一服務的別名網域視為相同（twitter.com＝x.com、fb.com＝facebook.com、pixiv.me 不變）。 */
+var HOST_ALIAS = { 'twitter.com': 'x.com', 'mobile.twitter.com': 'x.com', 'fxtwitter.com': 'x.com', 'vxtwitter.com': 'x.com', 'fb.com': 'facebook.com', 'web.facebook.com': 'facebook.com', 'instagr.am': 'instagram.com' };
+function snsKey_(u) { var h = hostOf_(u); if (!h) return ''; return (HOST_ALIAS[h] || h) + pathHead_(u); }
 
-/** 主資料修改：每欄一列寫入「修改申請」，一律待審核。 */
-function submitEdit_(uid, me, b) {
-  var id = str_(b.ownerId); if (me.owned.indexOf(id) < 0) throw new Error('尚未核准管理此攤主');
-  if (ownerSuspended_(id)) throw new Error('此攤主目前鎖定中，請聯絡站長');
-  var db = readDb_(), rowIdx = -1, key = str_(b.rowName), newRow = false, row;
+/** 準備主資料修改：找出資料列（或新列模式）、逐欄驗證、Safe Browsing。攤主申請與站長直接修改共用同一套檢查。 */
+function prepareDbEdit_(id, rowName, changes, who) {
+  var db = readDb_(), rowIdx = -1, key = str_(rowName), newRow = false, row;
   db.rows.forEach(function (r, i) { if (r[db.idc] === id && (rowIdx < 0 || r[db.nc] === key)) rowIdx = i; });
   if (rowIdx >= 0) row = db.rows[rowIdx];
   else {
@@ -402,26 +435,32 @@ function submitEdit_(uid, me, b) {
     key = str_(hist[hist.length - 1].name).trim(); if (!key) throw new Error('找不到此攤主的攤位名稱');
     newRow = true; row = db.hdr.map(function () { return ''; }); row[db.nc] = key; row[db.idc] = id;
   }
-  var changes = b.changes || {}, batch = newId_('B'), out = [], urls = [];
-  var fields = Object.keys(changes); if (fields.length > 30) throw new Error('一次最多修改 30 欄');
+  changes = changes || {}; var urls = [], fields = Object.keys(changes); if (fields.length > 30) throw new Error('一次最多修改 30 欄');
   var prepared = fields.map(function (f) {
     if (DB_EDITABLE.indexOf(f) < 0) throw new Error('此欄不可修改：' + f);
     var ci = db.hm[normHeader_(f)], old = ci === undefined ? '' : row[ci], vf = validateField_(f, changes[f], old);
     if (!vf.ok) throw new Error(f + '：' + vf.block); if (vf.value === str_(old).trim()) return null;
     splitUrls_(vf.value).forEach(function (u) { urls.push(u); }); return { f: f, old: old, vf: vf };
   }).filter(Boolean);
-  if (!prepared.length) return { queued: 0 };
   var sb = safeBrowsing_(urls), sbNote = sb.checked ? (sb.bad.length ? '⛔ Safe Browsing：' + sb.bad.join('、') : 'Safe Browsing OK') : 'Safe Browsing 未檢查';
-  if (sb.bad.length) { alert_('Safe Browsing 攔截', uid + ' 對 ' + id + ' 提交危險連結：' + sb.bad.join('\n')); throw new Error('連結被判定為危險網站，已拒絕'); }
+  if (sb.bad.length) { alert_('Safe Browsing 攔截', who + ' 對 ' + id + ' 提交危險連結：' + sb.bad.join('\n')); throw new Error('連結被判定為危險網站，已拒絕'); }
+  return { db: db, row: row, key: row[db.nc], newRow: newRow, prepared: prepared, sbNote: sbNote };
+}
+/** 主資料修改：每欄一列寫入「修改申請」，一律待審核。 */
+function submitEdit_(uid, me, b) {
+  var id = str_(b.ownerId); if (me.owned.indexOf(id) < 0) throw new Error('尚未核准管理此攤主');
+  if (ownerSuspended_(id)) throw new Error('此攤主目前鎖定中，請聯絡站長');
+  var P = prepareDbEdit_(id, b.rowName, b.changes, uid), prepared = P.prepared, out = [], batch = newId_('B');
+  if (!prepared.length) return { queued: 0 };
   var extra = prepared.length > 8 ? 10 : 0, sh = sheet_(SH.EDIT), maxRisk = 0;
   prepared.forEach(function (p) {
-    var risk = Math.min(100, p.vf.risk + extra), notes = p.vf.notes.concat([sbNote]).concat(newRow ? ['新增主資料列'] : []); maxRisk = Math.max(maxRisk, risk);
-    sh.appendRow([newId_('ED'), now_(), '主資料修改', id, SH.DB, safeCell_(row[db.nc]), p.f, safeCell_(p.old), safeCell_(p.vf.value), uid, risk, notes.join('｜'), '待審核', '', '', '', '', '', batch]);
+    var risk = Math.min(100, p.vf.risk + extra), notes = p.vf.notes.concat([P.sbNote]).concat(P.newRow ? ['新增主資料列'] : []); maxRisk = Math.max(maxRisk, risk);
+    sh.appendRow([newId_('ED'), now_(), '主資料修改', id, SH.DB, safeCell_(P.key), p.f, safeCell_(p.old), safeCell_(p.vf.value), uid, risk, notes.join('｜'), '待審核', '', '', '', '', '', batch]);
     out.push(p.f);
   });
   var sens = prepared.some(function (p) { return p.vf.sensitive; });
-  if (maxRisk >= 50 || sens) alert_('可疑修改待審核', uid + ' 對 ' + id + '（' + row[db.nc] + '）提交 ' + out.length + ' 欄修改，最高風險 ' + maxRisk + (sens ? '，含身分欄位變更（需二次驗證）' : '') + '\n欄位：' + out.join('、'));
-  return { queued: out.length, batch: batch, newRow: newRow, rowName: row[db.nc] };
+  if (maxRisk >= 50 || sens) alert_('可疑修改待審核', uid + ' 對 ' + id + '（' + P.key + '）提交 ' + out.length + ' 欄修改，最高風險 ' + maxRisk + (sens ? '，含身分欄位變更（需二次驗證）' : '') + '\n欄位：' + out.join('、'));
+  return { queued: out.length, batch: batch, newRow: P.newRow, rowName: P.key };
 }
 
 /** 場次整理表填寫：依設定 queue（預設）或 live。 */
@@ -582,6 +621,10 @@ function onOpen() {
     .addItem('🔄 清除網站快取', 'menuClearCache')
     .addItem('🧪 自我檢查（不寫入）', 'menuSelfTest')
     .addItem('🔑 初始化設定', 'menuSetup')
+    .addSeparator()
+    .addItem('🧱 初始化站長功能（建立分頁＋備份）', 'menuInitAdmin')
+    .addItem('👑 新增站長帳號（輸入配對碼）…', 'menuAddAdmin')
+    .addItem('👥 站長帳號清單／移除…', 'menuAdmins')
     .addToUi();
 }
 /** 簡易觸發 onEdit：①任何主資料修改→網站快取換版本（網站立即反映試算表變更）②在「修改申請」把狀態改成核准／復原時，同檔案內的目標立即套用。 */
@@ -629,16 +672,21 @@ function menuRevertOwner() {
 function menuSuspend() {
   var a = ui_().prompt('停權／恢復', '輸入「攤主ID」或「申請者代號 u_…」。要恢復請在前面加「+」，例：+C00045', ui_().ButtonSet.OK_CANCEL); if (a.getSelectedButton() !== ui_().Button.OK) return;
   var t = a.getResponseText().trim(), restore = t.charAt(0) === '+'; if (restore) t = t.slice(1);
-  var sh = sheet_(SH.CLAIM), last = sh.getLastRow(), v = last > 1 ? sh.getRange(2, 1, last - 1, 14).getValues() : [], n = 0;
-  if (/^u_/.test(t)) {
-    v.forEach(function (r, i) { if (r[4] !== t) return; if (!restore && (r[9] === '核准' || r[9] === '待審核')) { sh.getRange(i + 2, 10).setValue('停權'); sh.getRange(i + 2, 12).setValue(now_() + ' 站長停權'); n++; }
-      if (restore && r[9] === '停權') { sh.getRange(i + 2, 10).setValue('核准'); sh.getRange(i + 2, 12).setValue(now_() + ' 站長恢復'); n++; } });
+  try { var n = suspend_(t, restore, '試算表選單', ''); alog_('', '停權' + (restore ? '恢復' : ''), t, '', '', '', '認領申請', '', '', '試算表選單'); ui_().alert((restore ? '已恢復 ' : '已停權／鎖定 ') + n + ' 筆'); } catch (e) { ui_().alert(e.message); }
+}
+/** 停權／恢復：t = 申請者代號 u_…（帳號）或攤主ID（鎖定整個攤主）。回傳處理筆數。 */
+function suspend_(t, restore, by, note) {
+  var sh = sheet_(SH.CLAIM), last = sh.getLastRow(), v = last > 1 ? sh.getRange(2, 1, last - 1, 14).getValues() : [], n = 0, memo = (by ? by + '：' : '') + str_(note).slice(0, 200);
+  if (/^u_[A-Za-z0-9_-]{10,}$/.test(t)) {
+    if (!restore) { v.forEach(function (r, i) { if (r[4] === t && (r[9] === '核准' || r[9] === '待審核')) { sh.getRange(i + 2, 10).setValue('停權'); sh.getRange(i + 2, 12).setValue(now_() + ' 站長停權（原狀態:' + r[9] + '）' + safeCell_(memo)); n++; } });
+      if (!n && !v.some(function (r) { return r[4] === t && r[9] === '停權'; })) { sh.appendRow([newId_('CL'), now_(), '', '（帳號停權）', t, '站長', '', '', safeCell_(memo), '停權', now_(), '', 'ban', now_()]); n = 1; } }
+    else v.forEach(function (r, i) { if (r[4] === t && r[9] === '停權') { sh.getRange(i + 2, 10).setValue(r[12] === 'ban' ? '撤銷' : /原狀態:待審核/.test(str_(r[11])) ? '待審核' : '核准'); sh.getRange(i + 2, 12).setValue(now_() + ' 站長恢復 ' + safeCell_(memo)); n++; } });
   } else if (/^C\d{5,}$/.test(t)) {
-    if (!restore) { sh.appendRow([newId_('CL'), now_(), t, '（攤主鎖定）', '*', '站長', '', '', '鎖定此攤主：所有帳號暫停修改', '停權', now_(), '站長鎖定', 'lock', now_()]); n = 1; }
+    if (!restore) { sh.appendRow([newId_('CL'), now_(), t, '（攤主鎖定）', '*', '站長', '', '', safeCell_('鎖定此攤主：所有帳號暫停修改｜' + memo), '停權', now_(), '站長鎖定', 'lock', now_()]); n = 1; }
     else v.forEach(function (r, i) { if (r[2] === t && r[4] === '*' && r[9] === '停權') { sh.getRange(i + 2, 10).setValue('撤銷'); n++; } });
-  } else return ui_().alert('格式不正確');
+  } else throw new Error('格式不正確：請輸入攤主ID（C00045）或申請者代號（u_…）');
   if (!restore) rejectPending_(t);
-  bumpVersion_(); ui_().alert((restore ? '已恢復 ' : '已停權／鎖定 ') + n + ' 筆');
+  bumpVersion_(); return n;
 }
 function rejectPending_(t) {
   var sh = sheet_(SH.EDIT), last = sh.getLastRow(); if (last < 2) return; var v = sh.getRange(2, 1, last - 1, 13).getValues();
@@ -856,12 +904,371 @@ function menuMerge() {
   var s = mergeEventToDb_(p[0], p[1] === 'db' ? 'db_wins' : 'event_wins'); ui_().alert('完成：補空白 ' + s.filled + '、衝突 ' + s.conflicts + '、新增列 ' + s.appended);
 }
 
+/* ============================== 站長（多位站長、網站後台） ==============================
+ * 權限一律在伺服器判斷：每個 admin.* 請求都重新驗證 session 簽章，並確認 uid 在 ADMIN_UIDS。
+ * 站長只能用「網站配對碼 → 試算表擁有者在選單輸入」加入，網站上無法自行升級。 */
+function admins_() { try { return JSON.parse(prop_('ADMIN_UIDS', '[]')) || []; } catch (e) { return []; } }
+function setAdmins_(l) { setProp_('ADMIN_UIDS', JSON.stringify(l)); }
+function adminOf_(uid) { var l = admins_(); for (var i = 0; i < l.length; i++) if (l[i].u === uid) return l[i]; return null; }
+function adminLabel_(uid) { var a = adminOf_(uid); return a ? (a.label || uid.slice(0, 8) + '…') : (uid ? uid.slice(0, 8) + '…' : '試算表'); }
+function ensureTab_(name, hdr) {
+  var sh = ss_().getSheetByName(name); if (sh) return sh;
+  sh = ss_().insertSheet(name); sh.getRange(1, 1, 1, hdr.length).setValues([hdr]); try { sh.setFrozenRows(1); } catch (e) { } return sh;
+}
+/** 站長操作紀錄（稽核）：每個網站後台動作一列。 */
+function alog_(uid, action, target, field, oldV, newV, where, batch, refId, note) {
+  var sh = ensureTab_(SH.ALOG, ALOG_HDR);
+  sh.appendRow([now_(), uid || '', safeCell_(uid ? adminLabel_(uid) : '試算表選單'), action, safeCell_(target), safeCell_(field), safeCell_(str_(oldV).slice(0, 2000)), safeCell_(str_(newV).slice(0, 2000)), where || '', batch || '', refId || '', safeCell_(str_(note).slice(0, 500))]);
+}
+function mergeMap_() {
+  return cached_('mergemap', CACHE_TTL, function () {
+    var sh = ss_().getSheetByName(SH.MAP), m = {}; if (!sh || sh.getLastRow() < 2) return m;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getDisplayValues().forEach(function (r) { if (r[0] && r[1] && r[5] === '有效') m[r[0]] = r[1]; });
+    return m;
+  });
+}
+function resolveId_(id, mm) { var n = 0; while (mm && mm[id] && n++ < 10) id = mm[id]; return id; }
+
+/** 公開的關聯覆蓋層：站長判定「無關」的配對、合併對照、以及主資料庫裡「不同攤主共用同一個 SNS 帳號」的即時關聯。 */
+function relOverlay_() {
+  var out = { unrelated: [], merged: mergeMap_(), live: [], built: now_() };
+  var rs = ss_().getSheetByName(SH.REL);
+  if (rs && rs.getLastRow() > 1) rs.getRange(2, 1, rs.getLastRow() - 1, REL_HDR.length).getDisplayValues().forEach(function (r) { if (r[4] === '無關' && r[8] === '有效') out.unrelated.push([r[2], r[3]]); });
+  var db = readDb_(), byKey = {}, ID_PLAT = /^(x\.com|instagram\.com|facebook\.com|pixiv\.net|plurk\.com|bsky\.app|fanbox\.cc|youtube\.com)\//;
+  db.rows.forEach(function (r) { var id = r[db.idc]; if (!id) return;
+    SNS_COLS.forEach(function (h) { var i = db.hm[normHeader_(h)]; if (i === undefined || !r[i]) return;
+      splitUrls_(r[i]).forEach(function (u) { var k = snsKey_(u); if (!ID_PLAT.test(k) || k.split('/').length < 2 || k.split('/')[1].length < 2) return; var s = byKey[k] || (byKey[k] = []); if (s.indexOf(id) < 0) s.push(id); }); }); });
+  var seen = {};
+  Object.keys(byKey).forEach(function (k) { var ids = byKey[k]; if (ids.length < 2 || ids.length > 4) return;
+    for (var i = 0; i < ids.length; i++) for (var j = i + 1; j < ids.length; j++) { var a = ids[i] < ids[j] ? ids[i] : ids[j], b = ids[i] < ids[j] ? ids[j] : ids[i]; if (seen[a + b]) continue; seen[a + b] = 1; out.live.push([a, b, '共用帳號（即時）：' + k]); } });
+  return out;
+}
+
+/* ---------- 配對（加入站長） ---------- */
+function pairCode_() { var A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Date.now()), s = ''; for (var i = 0; i < 8; i++) s += A.charAt(((d[i] % 256) + 256) % 256 % A.length); return s; }
+function isSheetOwner_() {
+  try { var me = str_(Session.getActiveUser().getEmail()).toLowerCase(), ow = ss_().getOwner(); var oe = ow ? str_(ow.getEmail()).toLowerCase() : ''; return !!me && (!oe || me === oe); } catch (e) { return false; }
+}
+function menuInitAdmin() {
+  if (!isSheetOwner_()) return ui_().alert('只有試算表擁有者可以執行');
+  var made = [];
+  [[SH.ALOG, ALOG_HDR], [SH.REL, REL_HDR], [SH.MAP, MAP_HDR]].forEach(function (t) { if (!ss_().getSheetByName(t[0])) { ensureTab_(t[0], t[1]); made.push(t[0]); } });
+  var bk = '';
+  try { var f = DriveApp.getFileById(ss_().getId()); bk = f.makeCopy('攤位資料庫 備份 ' + now_().replace(/[: ]/g, '') + '（站長功能初始化前）').getId(); } catch (e) { bk = '（備份失敗：' + e.message + '，請手動「檔案 › 建立副本」）'; }
+  if (!prop_('ADMIN_UIDS', '')) setAdmins_([]);
+  alog_('', '初始化站長功能', '試算表', '', '', made.join('、') || '（分頁已存在）', '', '', '', '備份：' + bk);
+  bumpVersion_();
+  ui_().alert('完成。\n新建分頁：' + (made.join('、') || '（都已存在，未變更）') + '\n備份副本 ID：' + bk + '\n\n下一步：在網站登入後到「我的攤位」按「取得站長配對碼」，再回來按「👑 新增站長帳號」。');
+}
+function menuAddAdmin() {
+  if (!isSheetOwner_()) return ui_().alert('只有試算表擁有者可以新增站長');
+  var a = ui_().prompt('新增站長帳號', '請對方在網站「我的攤位」按「取得站長配對碼」（10 分鐘內有效），輸入 8 碼配對碼：', ui_().ButtonSet.OK_CANCEL);
+  if (a.getSelectedButton() !== ui_().Button.OK) return;
+  var code = a.getResponseText().trim().toUpperCase().replace(/[^A-Z0-9]/g, ''), c = CacheService.getScriptCache(), raw = c.get('pair:' + code);
+  if (!raw) return ui_().alert('配對碼無效或已過期（10 分鐘），請對方重新取得');
+  var p = JSON.parse(raw), l = admins_();
+  if (adminOf_(p.u)) { c.remove('pair:' + code); return ui_().alert('這個帳號已經是站長：' + adminLabel_(p.u)); }
+  var hasOwner = l.some(function (x) { return x.role === 'owner'; });
+  var role = 'admin';
+  if (!hasOwner) { var q = ui_().alert('站長角色', '這組配對碼是你（試算表擁有者）本人的 Google 帳號嗎？\n選「是」：此帳號成為「擁有者站長」，可在網站上以必填備註覆核身分欄位、移除其他站長。\n選「否」：一般站長。', ui_().ButtonSet.YES_NO); if (q === ui_().Button.YES) role = 'owner'; }
+  var ok = ui_().alert('確認', '將新增站長：\n暱稱：' + (p.label || '（未填）') + '\n代號：' + p.u.slice(0, 10) + '…\n角色：' + (role === 'owner' ? '擁有者站長' : '一般站長') + '\n確定？', ui_().ButtonSet.YES_NO);
+  if (ok !== ui_().Button.YES) return;
+  l.push({ u: p.u, label: str_(p.label).slice(0, 20) || ('站長' + (l.length + 1)), role: role, added: now_() }); setAdmins_(l); c.remove('pair:' + code);
+  alog_('', '新增站長', p.u, '', '', (p.label || '') + '（' + role + '）', 'ADMIN_UIDS', '', '', '試算表擁有者以選單配對');
+  ui_().alert('已新增。目前站長 ' + l.length + ' 位' + (l.length >= 2 ? '：身分欄位的修改需要第二位站長確認。' : '。'));
+}
+function menuAdmins() {
+  if (!isSheetOwner_()) return ui_().alert('只有試算表擁有者可以管理站長');
+  var l = admins_(), txt = l.map(function (x, i) { return (i + 1) + '. ' + x.label + '｜' + (x.role === 'owner' ? '擁有者' : '站長') + '｜' + x.u.slice(0, 10) + '…｜' + x.added; }).join('\n') || '（尚無站長）';
+  var a = ui_().prompt('站長帳號', txt + '\n\n要移除請輸入編號（留空不變）：', ui_().ButtonSet.OK_CANCEL);
+  if (a.getSelectedButton() !== ui_().Button.OK || !a.getResponseText().trim()) return;
+  var k = +a.getResponseText().trim() - 1; if (!(k >= 0 && k < l.length)) return ui_().alert('編號不正確');
+  var x = l.splice(k, 1)[0]; setAdmins_(l); alog_('', '移除站長', x.u, '', x.label, '', 'ADMIN_UIDS', '', '', '試算表選單'); ui_().alert('已移除 ' + x.label);
+}
+
+/* ---------- 網站後台 API ---------- */
+function adminCtx_(body, needAdmin) {
+  var s = readSessionObj_(body.session), a = adminOf_(s.u);
+  if (!needAdmin) return { uid: s.u, admin: a, s: s };
+  if (prop_('ADMIN_WEB_DISABLED', '') === '1') throw new Error('網站後台已停用（ADMIN_WEB_DISABLED），請使用試算表選單');
+  if (!a) throw new Error('沒有站長權限（伺服器檢查 ADMIN_UIDS）');
+  var age = Date.now() - (+s.t || 0);
+  if (!(age < ADMIN_SESSION_MS)) throw new Error('REAUTH:站長登入已超過 2 小時，請重新登入');
+  try { CacheService.getScriptCache().put('alast:' + s.u, now_(), 21600); } catch (e) { }
+  return { uid: s.u, admin: a, s: s, fresh: age < FRESH_MS };
+}
+function needFresh_(ctx, what) { if (!ctx.fresh) throw new Error('REAUTH:「' + what + '」需要在 10 分鐘內重新登入 Google 才能執行'); }
+var ADMIN_LIMIT = [300, 3600];
+function adminApi_(a, body, lock) {
+  try {
+    if (a === 'admin.pairStart') { var c0 = adminCtx_(body, false); rate_(c0.uid, 'report');
+      if (c0.admin) return { ok: true, data: { already: true, label: c0.admin.label } };
+      var code = pairCode_(); CacheService.getScriptCache().put('pair:' + code, JSON.stringify({ u: c0.uid, label: safeCell_(str_(body.label).replace(/[<>]/g, '').slice(0, 20)), at: now_() }), 600);
+      return { ok: true, data: { code: code, expiresIn: 600 } }; }
+    var ctx = adminCtx_(body, true), uid = ctx.uid;
+    var c = CacheService.getScriptCache(), k = 'arl:' + uid + ':' + Math.floor(Date.now() / 1000 / ADMIN_LIMIT[1]), n = +(c.get(k) || 0) + 1; c.put(k, String(n), ADMIN_LIMIT[1]);
+    if (n > ADMIN_LIMIT[0]) throw new Error('站長操作太頻繁，請稍後再試');
+    var READ = { 'admin.summary': adminSummary_, 'admin.queue': adminQueue_, 'admin.audit': adminAudit_, 'admin.events': adminEvents_, 'admin.relations': adminRelations_, 'admin.suspensions': adminSuspensions_ };
+    if (READ[a]) return { ok: true, data: READ[a](ctx, body) };
+    lock.waitLock(25000);
+    var WRITE = { 'admin.decide': adminDecide_, 'admin.revert': adminRevert_, 'admin.ownerEdit': adminOwnerEdit_, 'admin.eventEdit': adminEventEdit_, 'admin.relationDecide': adminRelationDecide_,
+      'admin.suspend': adminSuspend_, 'admin.mode': adminMode_, 'admin.eventAdd': adminEventAdd_, 'admin.eventRemove': adminEventRemove_, 'admin.importPreview': adminImport_, 'admin.importCreate': adminImport_,
+      'admin.mergeEvent': adminMergeEvent_, 'admin.adminRemove': adminRemove_, 'admin.adminLabel': adminSetLabel_ };
+    if (WRITE[a]) return { ok: true, data: WRITE[a](ctx, body, a) };
+    return { ok: false, error: 'unknown admin action' };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+}
+function editStatusRows_() { var sh = sheet_(SH.EDIT), last = sh.getLastRow(); return last > 1 ? sh.getRange(2, 1, last - 1, 19).getDisplayValues() : []; }
+function claimRows_() { var sh = sheet_(SH.CLAIM), last = sh.getLastRow(); return last > 1 ? sh.getRange(2, 1, last - 1, 14).getDisplayValues() : []; }
+var OPEN_ST = ['待審核', '需人工', '待第二位確認'];
+function adminSummary_(ctx) {
+  var ed = editStatusRows_(), cl = claimRows_(), c = CacheService.getScriptCache(), l = admins_();
+  var q = cl.filter(function (r) { return r[9] === '待審核'; }).length + ed.filter(function (r) { return OPEN_ST.indexOf(r[12]) >= 0 && r[2] !== '關聯回報'; }).length;
+  var rep = ed.filter(function (r) { return r[2] === '關聯回報' && r[12] === '待審核'; }).length;
+  var sus = cl.filter(function (r) { return r[9] === '停權'; }).length;
+  var second = ed.filter(function (r) { return r[12] === '待第二位確認' && firstApprover_(r[14]) !== ctx.uid; }).length;
+  return { admin: ctx.admin.label, uid: ctx.uid.slice(0, 8) + '…', role: ctx.admin.role, version: VERSION, fresh: ctx.fresh, twoAdmin: l.length >= 2, needsMySecond: second,
+    counts: { queue: q, relations: rep, owners: sus }, safeBrowsing: !!prop_('SAFE_BROWSING_API_KEY', ''), alertEmail: prop_('ALERT_EMAIL', '') ? '已設定' : '（未設定：寄給指令碼擁有者）', mode: fillMode_(),
+    admins: l.map(function (x) { return { u: x.u, uid: x.u.slice(0, 10) + '…', label: x.label, role: x.role, added: x.added, last: c.get('alast:' + x.u) || '', me: x.u === ctx.uid }; }) };
+}
+function firstApprover_(revNote) { var m = str_(revNote).match(/一審:(u_[A-Za-z0-9_-]+)/); return m ? m[1] : ''; }
+function adminQueue_(ctx) {
+  var db = readDb_(), idx = cached_('index', CACHE_TTL, buildIndex_), byId = {}; idx.owners.forEach(function (o) { byId[o[0]] = o; });
+  var nm = function (id) { return (byId[id] && byId[id][1]) || id; };
+  var known = function (id) { var out = []; db.rows.forEach(function (r) { if (r[db.idc] !== id) return; SNS_COLS.forEach(function (h) { var i = db.hm[normHeader_(h)]; if (i === undefined) return; splitUrls_(r[i]).forEach(function (u) { var k = snsKey_(u); if (k && out.indexOf(k) < 0) out.push(k); }); }); }); return out.slice(0, 12); };
+  var cl = claimRows_().filter(function (r) { return r[9] === '待審核'; });
+  var claims = cl.map(function (r) { var same = cl.filter(function (x) { return x[2] === r[2]; }).length;
+    return { id: r[0], at: r[1], ownerId: r[2], ownerName: nm(r[2]), who: str_(r[4]).slice(0, 8) + '…', whoFull: r[4], method: r[5], proof: r[6], code: r[7], note: str_(r[8]).split('｜')[0], match: /相符/.test(r[8]), competing: same > 1 ? same : 0, known: known(r[2]) }; });
+  var E = {}; activeEvents_().forEach(function (e) { try { E[e.code] = readEvent_(e); } catch (x) { } });
+  var B = {}, order = [];
+  editStatusRows_().forEach(function (r, i) {
+    if (OPEN_ST.indexOf(r[12]) < 0 || r[2] === '關聯回報') return;
+    var key = r[18] || r[0], g = B[key]; if (!g) { g = B[key] = { batch: key, type: r[2], ownerId: r[3], ownerName: nm(r[3]), target: r[4], key: r[5], who: adminOf_(r[9]) ? '站長 ' + adminLabel_(r[9]) : str_(r[9]).slice(0, 8) + '…', at: r[1], items: [] }; order.push(key); }
+    var cell = '';
+    if (E[r[4]]) { var kb = str_(r[5]).split('｜'), loc = locateEventRow_(E[r[4]], kb[0], kb[1] || ''), ci = E[r[4]].hm[normHeader_(r[6])]; if (loc.row && ci !== undefined) cell = r[4] + '!' + colLetter_(ci) + loc.row; }
+    if (r[4] === SH.DB) db.rows.forEach(function (x, j) { if (!cell && x[db.idc] === r[3] && (!r[5] || x[db.nc] === r[5])) { var ci2 = db.hm[normHeader_(r[6])]; if (ci2 !== undefined) cell = SH.DB + '!' + colLetter_(ci2) + (j + 2); } });
+    if (!cell && r[4] === SH.DB && /新增主資料列/.test(r[11])) cell = SH.DB + '（核准後新增一列）';
+    var flags = []; splitUrls_(r[8]).forEach(function (u) { var host = hostOf_(u), dom = FIELD_DOMAINS[r[6]];
+      flags.push(dom ? (domainIn_(host, dom) ? ['ok', '✓ 符合此欄網域白名單'] : ['bad', '✗ 不在白名單']) : (domainIn_(host, KNOWN_DOMAINS) ? ['ok', '✓ 常見網域'] : ['warn', '⚠ 首次出現的網域']));
+      if (/(^|\.)xn--/.test(host)) flags.push(['bad', '✗ 國際化網域（可能仿冒）']);
+      flags.push(/Safe Browsing OK/.test(r[11]) ? ['ok', '✓ Safe Browsing OK'] : ['warn', 'Safe Browsing 未檢查']); });
+    var first = firstApprover_(r[14]);
+    g.items.push({ id: r[0], row: i + 2, field: r[6], old: r[7], val: r[8], risk: +r[10] || 0, notes: str_(r[11]).split('｜').filter(Boolean), status: r[12], sensitive: /需二次驗證/.test(r[11]),
+      cell: cell, flags: flags, firstBy: first ? adminLabel_(first) : '', firstIsMe: first === ctx.uid, revNote: r[14] });
+  });
+  var batches = order.map(function (k) { return B[k]; }).sort(function (x, y) { var mx = function (b) { return Math.max.apply(null, b.items.map(function (i) { return i.risk; })); }; return (y.items[0].status === '待第二位確認') - (x.items[0].status === '待第二位確認') || mx(y) - mx(x); });
+  return { claims: claims, batches: batches, mode: fillMode_(), twoAdmin: admins_().length >= 2, role: ctx.admin.role };
+}
+/** 審核：decision = approve（一般欄位，可批次）/ approve2（身分欄位：有 2 位以上站長時為「一審」，由另一位站長「二審」）/ override（擁有者站長覆核，必填備註）/ reject / suspend（認領：停權申請帳號）。
+ * 全程持有 Script Lock，並在鎖內重新讀取狀態：已被別人處理的項目會回傳 handled（顯示由誰處理），不會套用兩次。 */
+function adminDecide_(ctx, b) {
+  var ids = (b.ids || []).map(str_).filter(Boolean).slice(0, 200), dec = str_(b.decision), note = str_(b.note).trim().slice(0, 300), me = ctx.admin, label = me.label, two = admins_().length >= 2;
+  if (!ids.length) throw new Error('沒有選取項目');
+  if (['approve', 'approve2', 'override', 'reject', 'suspend'].indexOf(dec) < 0) throw new Error('未知的決定');
+  if (ids.length > 1 && dec !== 'reject') needFresh_(ctx, '批次核准');
+  if (dec === 'approve2' || dec === 'override' || dec === 'suspend') needFresh_(ctx, dec === 'suspend' ? '停權' : '身分欄位核准');
+  if (dec === 'approve2' && !note) throw new Error('身分欄位核准必須填寫驗證方式（例：已在原認領的 X 帳號私訊確認）');
+  if (dec === 'override') { if (me.role !== 'owner') throw new Error('只有擁有者站長可以覆核'); if (note.length < 4) throw new Error('覆核必須填寫理由（至少 4 字）'); }
+  var res = { done: 0, skipped: 0, waiting: 0, handled: [], results: [] };
+  var csh = sheet_(SH.CLAIM), cl = claimRows_(), esh = sheet_(SH.EDIT), ed = editStatusRows_();
+  ids.forEach(function (id) {
+    var ci = -1; for (var i = 0; i < cl.length; i++) if (cl[i][0] === id) { ci = i; break; }
+    if (ci >= 0) { // ---- 認領 ----
+      var cur = str_(csh.getRange(ci + 2, 10).getValue());
+      if (cur !== '待審核') { res.handled.push({ id: id, status: cur, by: str_(csh.getRange(ci + 2, 12).getValue()) }); return; }
+      var st = dec === 'reject' ? '拒絕' : dec === 'suspend' ? '停權' : '核准';
+      csh.getRange(ci + 2, 10).setValue(st); csh.getRange(ci + 2, 11).setValue(now_()); csh.getRange(ci + 2, 12).setValue(safeCell_('站長 ' + label + (note ? '：' + note : '')));
+      if (dec === 'suspend') suspend_(cl[ci][4], false, '站長 ' + label, note);
+      alog_(ctx.uid, '認領' + st, cl[ci][2] + ' ' + cl[ci][3], '', '待審核', st, SH.CLAIM + '!J' + (ci + 2), '', id, note); res.done++; return;
+    }
+    var ei = -1; for (var j = 0; j < ed.length; j++) if (ed[j][0] === id) { ei = j; break; }
+    if (ei < 0) { res.skipped++; res.results.push({ id: id, ok: false, error: '找不到申請' }); return; }
+    var n = ei + 2, r = editRow_(n), stt = str_(r.status);
+    if (OPEN_ST.indexOf(stt) < 0) { res.handled.push({ id: id, status: stt, by: handledBy_(r.revNote) }); return; }
+    var sens = /需二次驗證/.test(str_(r.notes)), tag = '｜' + now_() + ' ';
+    if (dec === 'reject') { setEdit_(n, { status: '拒絕', revAt: now_(), revNote: str_(r.revNote) + tag + '拒絕 by 站長 ' + label + (note ? '：' + note : '') }); alog_(ctx.uid, '拒絕', r.owner + ' ' + r.key, r.field, r.old, r.val, '', r.batch, id, note); res.done++; return; }
+    if (dec === 'suspend') { res.skipped++; return; }
+    var revNote = str_(r.revNote);
+    if (sens) {
+      if (dec === 'approve') { res.skipped++; res.results.push({ id: id, ok: false, error: '身分欄位需逐筆「二次驗證後核准」' }); return; }
+      if (dec === 'override') revNote += tag + '二次驗證OK（擁有者覆核 by 站長 ' + label + '）：' + note;
+      else if (two) {
+        var first = firstApprover_(revNote);
+        if (stt !== '待第二位確認' || !first) { setEdit_(n, { status: '待第二位確認', revNote: revNote + tag + '一審:' + ctx.uid + ' 站長 ' + label + '：' + note }); alog_(ctx.uid, '一審（待第二位確認）', r.owner + ' ' + r.key, r.field, r.old, r.val, '', r.batch, id, note); res.waiting++; return; }
+        if (first === ctx.uid) { res.skipped++; res.results.push({ id: id, ok: false, error: '需要另一位站長確認（你已經是一審）' }); return; }
+        revNote += tag + '二次驗證OK（二審 by 站長 ' + label + '）：' + note;
+      } else revNote += tag + '二次驗證OK（站長 ' + label + '）：' + note;
+    } else revNote += tag + '核准 by 站長 ' + label + (note ? '：' + note : '');
+    setEdit_(n, { status: '核准', revAt: now_(), revNote: revNote });
+    var ap = applyRow_(n, true); var after = editRow_(n);
+    alog_(ctx.uid, ap.ok ? (dec === 'override' ? '擁有者覆核套用' : '核准套用') : '核准（需人工）', r.owner + ' ' + r.key, r.field, r.old, r.val, ap.where || '', r.batch, id, ap.ok ? note : ap.error);
+    res.results.push({ id: id, ok: !!ap.ok, where: ap.where || '', error: ap.error || '', status: after.status }); ap.ok ? res.done++ : res.skipped++;
+  });
+  bumpVersion_(); return res;
+}
+function handledBy_(revNote) { var m = str_(revNote).match(/(?:by|一審:u_[A-Za-z0-9_-]+) 站長 ([^｜：）]+)[^｜]*$/); if (m) return '站長 ' + m[1]; var x = str_(revNote).split('｜').filter(Boolean).pop(); return x || '（試算表）'; }
+/** 復原：ids（修改申請ID）或 batch（整批，含攤主合併）。只有目前值仍等於當初寫入的值才會還原。 */
+function adminRevert_(ctx, b) {
+  var ed = editStatusRows_(), ids = (b.ids || []).map(str_), batch = str_(b.batch), res = { ok: 0, fail: 0, already: 0 };
+  if (batch) needFresh_(ctx, '整批復原');
+  for (var i = ed.length - 1; i >= 0; i--) {
+    var r = ed[i]; if (!(ids.indexOf(r[0]) >= 0 || (batch && r[18] === batch))) continue;
+    var cur = str_(sheet_(SH.EDIT).getRange(i + 2, E_COL.status).getValue());
+    if (cur !== '已套用') { res.already++; continue; }
+    var x = revertRow_(i + 2, true); x.ok ? res.ok++ : res.fail++;
+    alog_(ctx.uid, x.ok ? '復原' : '復原失敗', r[3] + ' ' + r[5], r[6], r[8], r[16], r[15], r[18], r[0], x.ok ? '' : '此格之後又被修改，需人工');
+  }
+  if (batch) [[SH.MAP, 5, 6], [SH.REL, 10, 9]].forEach(function (t) { var sh = ss_().getSheetByName(t[0]); if (!sh || sh.getLastRow() < 2) return;
+    sh.getRange(2, t[1], sh.getLastRow() - 1, 1).getValues().forEach(function (v, k) { if (v[0] === batch) sh.getRange(k + 2, t[2]).setValue('已復原'); }); });
+  bumpVersion_(); return res;
+}
+/** 站長直接修改主資料：與攤主相同的驗證（白名單、縮網址、公式注入、風險、Safe Browsing）；一般欄位立即套用並記錄（可復原）；
+ * 身分欄位在有 2 位以上站長時改為「待第二位確認」。 */
+function adminOwnerEdit_(ctx, b) {
+  var id = str_(b.ownerId); if (!/^C\d{5,}$/.test(id)) throw new Error('攤主ID 格式錯誤');
+  var P = prepareDbEdit_(id, b.rowName, b.changes, '站長 ' + ctx.admin.label); if (!P.prepared.length) return { applied: 0, waiting: 0, failed: [] };
+  if (P.prepared.some(function (p) { return p.vf.sensitive; })) needFresh_(ctx, '修改身分欄位');
+  var batch = newId_('B');
+  return adminApplyPrepared_(ctx, P.prepared, batch, function (p, st, revNote) {
+    return [newId_('AD'), now_(), '主資料修改', id, SH.DB, safeCell_(P.key), p.f, safeCell_(p.old), safeCell_(p.vf.value), ctx.uid, p.vf.risk, p.vf.notes.concat([P.sbNote, '站長直接修改']).concat(P.newRow ? ['新增主資料列'] : []).join('｜'), st, now_(), revNote, '', '', '', batch];
+  }, id + ' ' + P.key);
+}
+function adminApplyPrepared_(ctx, prepared, batch, mkRow, target) {
+  var two = admins_().length >= 2, sh = sheet_(SH.EDIT), out = { applied: 0, waiting: 0, failed: [], batch: batch, items: [] }, label = ctx.admin.label, tag = now_() + ' ';
+  // 攤位名稱先套用（新列模式時讓同批其他欄位找得到新列）
+  prepared.sort(function (x, y) { return (y.f === '攤位名稱') - (x.f === '攤位名稱'); });
+  prepared.forEach(function (p) {
+    var sens = !!p.vf.sensitive, st, revNote;
+    if (sens && two) { st = '待第二位確認'; revNote = tag + '一審:' + ctx.uid + ' 站長 ' + label + '：站長直接修改'; }
+    else { st = '核准'; revNote = tag + (sens ? '二次驗證OK（唯一站長 ' + label + ' 直接修改）' : '站長直接修改 by 站長 ' + label); }
+    sh.appendRow(mkRow(p, st, revNote)); var n = sh.getLastRow(), rid = str_(sh.getRange(n, 1).getValue());
+    if (st === '待第二位確認') { out.waiting++; alog_(ctx.uid, '直接修改（待第二位確認）', target, p.f, p.old, p.vf.value, '', batch, rid, ''); out.items.push({ id: rid, field: p.f, status: st }); return; }
+    var ap = applyRow_(n, true);
+    alog_(ctx.uid, ap.ok ? '直接修改' : '直接修改失敗', target, p.f, p.old, p.vf.value, ap.where || '', batch, rid, ap.ok ? '' : ap.error);
+    if (ap.ok) out.applied++; else out.failed.push(p.f + '：' + ap.error);
+    out.items.push({ id: rid, field: p.f, status: ap.ok ? '已套用' : '需人工', where: ap.where || '' });
+  });
+  bumpVersion_(); return out;
+}
+/** 站長直接修改場次整理表（任何攤位，含販售資訊），套用時仍檢查「目前值＝讀取時的值」避免覆蓋別人同時的修改。 */
+function adminEventEdit_(ctx, b) {
+  var code = str_(b.event), ev = findEvent_(code); if (!ev) throw new Error('此場次不在整理中清單');
+  var booth = str_(b.booth), E = readEvent_(ev), loc = locateEventRow_(E, booth, str_(b.boothNo)); if (loc.error) throw new Error(loc.error);
+  var row = E.rows[loc.index], changes = b.changes || {}, fields = Object.keys(changes), urls = []; if (fields.length > 40) throw new Error('一次最多 40 欄');
+  var expect = b.expect || {};
+  var prepared = fields.map(function (f) {
+    var ci = E.hm[normHeader_(f)]; if (ci === undefined || isLockedHeader_(E.hdr[ci], false)) throw new Error('此欄不可寫入：' + f);
+    var old = row[ci]; if (f in expect && str_(expect[f]).trim() !== str_(old).trim()) throw new Error(f + '：整理表此格剛被別人修改過，請重新載入後再改');
+    var vf = validateField_(f, changes[f], old); if (!vf.ok) throw new Error(f + '：' + vf.block);
+    if (f === '縮圖[請備註]' && vf.value) { var fid = driveId_(vf.value), st = fid ? thumbStatus_(fid) : 'BAD_LINK'; if (st !== 'PUBLIC') throw new Error('縮圖連結無法公開檢視（' + st + '）'); }
+    if (vf.value === str_(old).trim()) return null; splitUrls_(vf.value).forEach(function (u) { urls.push(u); }); return { f: f, old: old, vf: vf };
+  }).filter(Boolean);
+  if (!prepared.length) return { applied: 0, waiting: 0, failed: [] };
+  var sb = safeBrowsing_(urls); if (sb.bad.length) throw new Error('連結被判定為危險網站，已拒絕：' + sb.bad.join('、'));
+  if (prepared.some(function (p) { return p.vf.sensitive; })) needFresh_(ctx, '修改身分欄位');
+  var lg = readLog_(), C = lg.C, oid = ''; lg.rows.forEach(function (r) { if (r[C.ev] === code && normName_(r[C.name]) === normName_(booth)) oid = r[C.id]; });
+  var batch = newId_('B'), sbNote = sb.checked ? 'Safe Browsing OK' : 'Safe Browsing 未檢查';
+  var out = adminApplyPrepared_(ctx, prepared, batch, function (p, st, revNote) {
+    return [newId_('AE'), now_(), '場次填寫', oid, code, safeCell_(booth + (b.boothNo ? '｜' + b.boothNo : '')), p.f, safeCell_(p.old), safeCell_(p.vf.value), ctx.uid, p.vf.risk, p.vf.notes.concat([sbNote, '站長直接修改']).join('｜'), st, now_(), revNote, '', '', '', batch];
+  }, code + ' ' + booth);
+  CacheService.getScriptCache().remove('ev:' + code + '@' + version_()); return out;
+}
+/** 關聯判定：merge（B 併入 A：B 的所有列改成 A 的攤主ID、寫入 ID 合併對照，整批可復原）／unrelated（確認無關，不再顯示微弱關聯）／skip。 */
+function adminRelationDecide_(ctx, b) {
+  var A = str_(b.a), B = str_(b.b), dec = str_(b.decision), note = str_(b.note).slice(0, 300);
+  if (!/^C\d{5,}$/.test(A) || !/^C\d{5,}$/.test(B) || A === B) throw new Error('攤主ID 格式錯誤');
+  var mm = mergeMap_(); if (mm[A] || mm[B]) throw new Error('其中一個攤主已被合併過（' + (mm[A] ? A + '→' + mm[A] : B + '→' + mm[B]) + '）');
+  var rs = ensureTab_(SH.REL, REL_HDR), batch = newId_('RM'), rid = newId_('RJ');
+  if (dec === 'unrelated' || dec === 'skip') {
+    rs.appendRow([rid, now_(), A, B, dec === 'unrelated' ? '無關' : '略過', ctx.uid, safeCell_(ctx.admin.label), safeCell_(note), '有效', '']);
+    closeReports_(A, B, ctx.admin.label + '：' + (dec === 'unrelated' ? '確認無關' : '略過'));
+    alog_(ctx.uid, dec === 'unrelated' ? '關聯：確認無關' : '關聯：略過', A + ' × ' + B, '', '', '', SH.REL, '', rid, note); bumpVersion_(); return { ok: true, id: rid };
+  }
+  if (dec !== 'merge') throw new Error('未知的判定');
+  needFresh_(ctx, '合併攤主');
+  var db = readDb_(), lg = readLog_(), rows = [], now = now_();
+  db.rows.forEach(function (r, i) { if (r[db.idc] === B) { var where = SH.DB + '!' + colLetter_(db.idc) + (i + 2); db.sheet.getRange(i + 2, db.idc + 1).setValue(A); rows.push([newId_('MG'), now, '攤主合併', A, SH.DB, safeCell_(r[db.nc]), '攤主ID', B, A, ctx.uid, 0, '合併 ' + B + ' → ' + A, '已套用', now, '站長 ' + ctx.admin.label + (note ? '：' + safeCell_(note) : ''), where, B, now, batch]); } });
+  lg.rows.forEach(function (r, i) { if (r[lg.C.id] === B) { var where = SH.LOG + '!' + colLetter_(lg.C.id) + (i + 2); lg.sheet.getRange(i + 2, lg.C.id + 1).setValue(A); rows.push([newId_('MG'), now, '攤主合併', A, SH.LOG, safeCell_(r[lg.C.rid]), '攤主ID', B, A, ctx.uid, 0, '合併 ' + B + ' → ' + A, '已套用', now, '站長 ' + ctx.admin.label, where, B, now, batch]); } });
+  if (!rows.length) throw new Error('找不到攤主 ' + B + ' 的任何資料列');
+  var es = sheet_(SH.EDIT); es.getRange(es.getLastRow() + 1, 1, rows.length, 19).setValues(rows);
+  ensureTab_(SH.MAP, MAP_HDR).appendRow([B, A, now, ctx.uid, batch, '有效']);
+  rs.appendRow([rid, now, A, B, '合併', ctx.uid, safeCell_(ctx.admin.label), safeCell_(note), '有效', batch]);
+  closeReports_(A, B, ctx.admin.label + '：已合併');
+  alog_(ctx.uid, '合併攤主', B + ' → ' + A, '攤主ID', B, A, rows.length + ' 列', batch, rid, note);
+  bumpVersion_(); return { ok: true, moved: rows.length, batch: batch };
+}
+function closeReports_(A, B, memo) {
+  var sh = sheet_(SH.EDIT), ed = editStatusRows_();
+  ed.forEach(function (r, i) { if (r[2] === '關聯回報' && r[12] === '待審核' && ((r[3] === A && r[5] === B) || (r[3] === B && r[5] === A))) { sh.getRange(i + 2, E_COL.status).setValue('已套用'); sh.getRange(i + 2, E_COL.revNote).setValue(safeCell_(memo)); sh.getRange(i + 2, E_COL.revAt).setValue(now_()); } });
+}
+function adminRelations_(ctx) {
+  var out = { decisions: [], reports: [] }, rs = ss_().getSheetByName(SH.REL);
+  if (rs && rs.getLastRow() > 1) rs.getRange(2, 1, rs.getLastRow() - 1, REL_HDR.length).getDisplayValues().forEach(function (r) { out.decisions.push({ id: r[0], at: r[1], a: r[2], b: r[3], decision: r[4], by: r[6], note: r[7], status: r[8], batch: r[9] }); });
+  editStatusRows_().forEach(function (r) { if (r[2] === '關聯回報' && r[12] === '待審核') out.reports.push({ id: r[0], at: r[1], a: r[3], b: r[5], kind: r[6], note: r[8] }); });
+  out.merged = mergeMap_(); return out;
+}
+function adminSuspensions_() {
+  return claimRows_().filter(function (r) { return r[9] === '停權'; }).map(function (r) { return { id: r[0], target: r[4] === '*' ? r[2] : r[4], kind: r[4] === '*' ? '攤主鎖定' : '帳號停權', owner: r[2], at: r[10] || r[1], note: str_(r[11]) || str_(r[8]) }; });
+}
+function adminSuspend_(ctx, b) {
+  var t = str_(b.target).trim(); needFresh_(ctx, b.restore ? '恢復停權' : '停權');
+  var n = suspend_(t, !!b.restore, '站長 ' + ctx.admin.label, b.note); alog_(ctx.uid, b.restore ? '恢復' : '停權／鎖定', t, '', '', '', SH.CLAIM, '', '', b.note); return { n: n };
+}
+function adminMode_(ctx, b) { var m = b.mode === 'live' ? 'live' : 'queue', old = fillMode_(); setProp_('EVENT_FILL_MODE', m); bumpVersion_(); alog_(ctx.uid, '切換填寫模式', 'EVENT_FILL_MODE', '', old, m, 'Script Properties', '', '', ''); return { mode: m }; }
+function adminEvents_() {
+  var lg = readLog_(), C = lg.C, ed = editStatusRows_();
+  return { mode: fillMode_(), active: activeEvents_().map(function (e) {
+    var o = publicEvent_(e); o.url = 'https://docs.google.com/spreadsheets/d/' + e.sheetId + '/edit'; o.tab = e.tab || '';
+    try { var f = SpreadsheetApp.openById(e.sheetId); o.fileName = f.getName(); var E = readEvent_(e), cnt = {}; E.rows.forEach(function (r) { var k = str_(r[0]).trim(); if (k) cnt[k] = (cnt[k] || 0) + 1; });
+      o.booths = Object.keys(cnt).length; o.dups = Object.keys(cnt).filter(function (k) { return cnt[k] > 1; }).slice(0, 20); } catch (x) { o.error = x.message; }
+    o.mapped = lg.rows.filter(function (r) { return r[C.ev] === e.code && r[C.id]; }).length; o.pending = ed.filter(function (r) { return r[4] === e.code && OPEN_ST.indexOf(r[12]) >= 0; }).length; return o; }) };
+}
+function adminEventAdd_(ctx, b) {
+  var code = str_(b.code).trim().toUpperCase(), sid = sheetIdFromUrl_(b.sheetUrl); if (!/^[A-Z0-9_-]{2,16}$/.test(code) || !sid) throw new Error('場次代碼或整理表網址不正確');
+  var ev = { code: code, name: str_(b.name).slice(0, 80) || code, start: /^\d{4}-\d{2}-\d{2}$/.test(str_(b.start)) ? b.start : '', sheetId: sid, tab: str_(b.tab), status: '整理中' };
+  var E = readEvent_(ev); if (str_(E.hdr[0]).trim() !== '攤位名稱') throw new Error('整理表第 1 列 A 欄必須是「攤位名稱」');
+  var list = activeEvents_().filter(function (e) { return e.code !== code; }); list.push(ev); setActiveEvents_(list);
+  alog_(ctx.uid, '新增整理中場次', code, '', '', ev.name + '｜' + sid, 'ACTIVE_EVENTS', '', '', ''); return { ok: true, booths: E.rows.length };
+}
+function adminEventRemove_(ctx, b) { var code = str_(b.code); setActiveEvents_(activeEvents_().filter(function (e) { return e.code !== code; })); alog_(ctx.uid, '移除整理中場次', code, '', '', '', 'ACTIVE_EVENTS', '', '', '只移出清單，不刪任何檔案'); return { ok: true }; }
+function adminImport_(ctx, b, a) {
+  var dry = a === 'admin.importPreview'; if (!dry) needFresh_(ctx, '匯入新場次');
+  var src = sheetIdFromUrl_(b.srcUrl), tpl = b.templateCode ? (findEvent_(b.templateCode) || {}).sheetId : sheetIdFromUrl_(b.templateUrl);
+  if (!src || !tpl) throw new Error('請提供主辦名單與範本整理表');
+  var r = importEvent_({ code: str_(b.code).trim().toUpperCase(), name: str_(b.name), start: str_(b.start), srcId: src, templateId: tpl, prefill: b.prefill !== false, dryRun: dry });
+  if (!dry) alog_(ctx.uid, '匯入新場次', b.code, '', '', JSON.stringify({ booths: r.booths, matched: r.matched }), r.sheetId || '', '', '', '');
+  return r;
+}
+function adminMergeEvent_(ctx, b) { needFresh_(ctx, '場次併入主資料庫'); var s = mergeEventToDb_(str_(b.code), b.policy === 'db_wins' ? 'db_wins' : 'event_wins'); alog_(ctx.uid, '場次併入主資料庫', b.code, '', '', JSON.stringify(s), SH.DB, '', '', b.policy || 'event_wins'); return s; }
+function adminRemove_(ctx, b) {
+  var u = str_(b.u), l = admins_(), x = adminOf_(u); if (!x) throw new Error('找不到此站長');
+  if (u !== ctx.uid && ctx.admin.role !== 'owner') throw new Error('只有擁有者站長可以移除其他站長（自己可以退出）');
+  if (x.role === 'owner' && u !== ctx.uid) throw new Error('不能移除擁有者站長');
+  needFresh_(ctx, '移除站長');
+  setAdmins_(l.filter(function (y) { return y.u !== u; })); alog_(ctx.uid, '移除站長', u, '', x.label, '', 'ADMIN_UIDS', '', '', ''); return { ok: true };
+}
+function adminSetLabel_(ctx, b) { var l = admins_(), lb = str_(b.label).replace(/[<>]/g, '').trim().slice(0, 20); if (!lb) throw new Error('暱稱不可空白'); l.forEach(function (x) { if (x.u === ctx.uid) x.label = lb; }); setAdmins_(l); alog_(ctx.uid, '修改暱稱', ctx.uid, '', ctx.admin.label, lb, 'ADMIN_UIDS', '', '', ''); return { ok: true }; }
+function adminAudit_(ctx, b) {
+  var sh = ss_().getSheetByName(SH.ALOG), rows = []; if (!sh || sh.getLastRow() < 2) return { rows: [], total: 0 };
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, ALOG_HDR.length).getDisplayValues(), ed = editStatusRows_(), st = {}; ed.forEach(function (r) { st[r[0]] = r[12]; });
+  var q = normName_(b.q), act = str_(b.kind), from = str_(b.from);
+  for (var i = v.length - 1; i >= 0; i--) { var r = v[i];
+    if (act && r[3].indexOf(act) < 0) continue; if (from && r[0] < from) continue; if (q && normName_(r.join('|')).indexOf(q) < 0) continue;
+    rows.push({ at: r[0], admin: r[2], adminUid: str_(r[1]).slice(0, 8), action: r[3], target: r[4], field: r[5], old: r[6], val: r[7], where: r[8], batch: r[9], ref: r[10], note: r[11], revertable: st[r[10]] === '已套用' && !/^MG/.test(r[10]), batchRevertable: /^RM/.test(r[9]) && /合併/.test(r[3]) });
+    if (rows.length >= (b.all ? 5000 : 300)) break; }
+  return { rows: rows, total: v.length };
+}
+
 /* ============================== 自我檢查（不寫入） ============================== */
 function selfTest_() {
   var out = [], t = function (name, cond) { out.push((cond ? '✅ ' : '❌ ') + name); };
   t('HMAC_SECRET 已設定', !!prop_('HMAC_SECRET', '')); t('OAUTH_CLIENT_ID 已設定', !!prop_('OAUTH_CLIENT_ID', ''));
   try { var db = readDb_(); t('新攤位資料庫有攤主ID欄（' + db.rows.length + ' 列）', db.idc !== undefined); } catch (e) { t('新攤位資料庫：' + e.message, false); }
   [SH.LOG, SH.CLAIM, SH.EDIT].forEach(function (n) { t('工作表存在：' + n, !!ss_().getSheetByName(n)); });
+  [SH.ALOG, SH.REL, SH.MAP].forEach(function (n) { t('站長分頁：' + n + (ss_().getSheetByName(n) ? '' : '（尚未建立：請執行「🧱 初始化站長功能」）'), !!ss_().getSheetByName(n)); });
+  t('站長人數：' + admins_().length + (admins_().length >= 2 ? '（身分欄位需第二位站長確認）' : ''), admins_().length > 0);
+  t('twitter.com 與 x.com 視為同一帳號', snsKey_('https://twitter.com/Abc') === snsKey_('https://x.com/abc'));
+  t('販售資訊格式檢查', salesFormat_('💠新刊【畫冊】').ok && !salesFormat_('新刊 畫冊').ok);
   t('縮網址被拒', !validateField_('IG', 'https://bit.ly/abc', '').ok); t('javascript: 被拒', !validateField_('官方網站', 'javascript:alert(1)', '').ok);
   t('IG 欄位只收 instagram', !validateField_('IG', 'https://evil.example/x', '').ok); t('追蹤參數移除', validateField_('IG', 'https://www.instagram.com/abc/?igsh=xyz', '').value === 'https://www.instagram.com/abc/');
   t('取代身分欄位＝敏感', !!validateField_('TWITTER (1)', 'https://x.com/b', 'https://x.com/a').sensitive); t('公式注入防護', safeCell_('=IMPORTXML("x")').charAt(0) === "'");

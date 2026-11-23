@@ -6,11 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: https://lh3.googleusercontent.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>攤位資料庫 Booth Database</title>
+<script src="assets/theme.js"></script>
 <link rel="stylesheet" href="assets/style.css">
 <script src="assets/config.js"></script>
 <script src="assets/i18n.js"></script>
 <script src="assets/privacy.js"></script>
 <script src="vendor/vis-network.min.js" defer></script>
+<script src="assets/admin.js" defer></script>
 <script src="assets/app.js" defer></script>
 </head>
 <body>
@@ -19,9 +21,11 @@
   <nav id="nav">
     <a class="pill" href="#/" data-route="home" data-t="nav_home"></a>
     <a class="pill" href="#/events" data-route="events" data-t="nav_events"></a>
+    <a class="pill" href="#/all" data-route="all" data-t="nav_all"></a>
     <a class="pill" href="#/me" data-route="me" data-t="nav_me"></a>
+    <a class="pill admin-only" href="#/admin" data-route="admin" data-t="nav_admin" hidden></a>
   </nav>
-  <div class="langs" id="langs"></div>
+  <div class="langs" id="langs"></div><button class="pill sm" id="themeBtn" type="button"></button>
 </header>
 <div id="banner" class="banner" hidden></div>
 <main id="app"></main>

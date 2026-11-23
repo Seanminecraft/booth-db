@@ -1,6 +1,6 @@
 # 攤位資料庫網站 — 工程文件
 
-版本 2026-11-23（phase 2）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
+版本 2026-11-23（phase 3，Apps Script `VERSION = '2026-11-23-p3'`）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
 
 > 本文件說明架構、資料流程、資料收集、資料結構、API、登入、審核、安全、部署、設定與測試。
 > 隱私權政策見 `docs/PRIVACY.md`（草稿，需站長與工程師審閱，非法律意見）。
@@ -235,12 +235,16 @@ Google Cloud Console（與 Apps Script 同一專案或任一專案）→ API 和
 | 🔄 清除網站快取 | 換新版本號 |
 | 🧪 自我檢查 | 不寫入的設定檢查 |
 | 🔑 初始化設定 | 產生 HMAC_SECRET（不覆蓋既有值）、輸入 OAuth Client ID、預設審核制、可選擇登記第一個整理中場次 |
+| 🧱 站長功能初始化 | 先用雲端硬碟建立整份試算表的副本（`攤位資料庫 備份 <時間>（站長功能初始化前）`），再建立「站長操作紀錄」「關聯判定」「ID 合併對照」三個分頁（已存在則不動） |
+| 👑 新增站長帳號（配對碼） | 只有試算表擁有者能執行；輸入網站產生的 8 碼配對碼（10 分鐘有效、一次性）。第一位站長會詢問是否為「擁有者站長」 |
+| 👥 站長名單 | 列出 ADMIN_UIDS（代號前幾碼、暱稱、角色、加入時間） |
 
 ## 11. 測試
 
 ```
-node tests/run-tests.js [fixtures 目錄]     # 端到端，83 項
-node tests/dev-server.js 8787              # 本機網站＋模擬 API（假登入 dev-owner-1 管 C00968、dev-owner-2 管 C02492）
+node tests/run-tests.js [fixtures 目錄]     # 端到端，152 項
+node tests/dev-server.js 8787              # 本機網站＋真實 code.gs（假登入 dev-owner-1 管 C00968、dev-owner-2 管 C02492、dev-admin＝擁有者站長小編A、dev-admin-2＝站長小編B；`dev-admin~stale` 模擬 20 分鐘前登入）
+NO_SEED=1 node tests/dev-server.js 8787    # 不放樣本申請
 PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主頁「編輯」按鈕與新列表單的 UI 回歸（需先開 dev-server）
 ```
 - `gas-mock.js` 模擬 SpreadsheetApp、CacheService、PropertiesService、Utilities（HMAC/base64）、UrlFetchApp、ContentService、LockService、MailApp、DriveApp.makeCopy、HtmlService 範本。
@@ -252,9 +256,12 @@ PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主�
 
 - `site/index.html`：CSP、載入順序 config → i18n → privacy → vis-network → app。
 - `assets/app.js`：路由 `#/`（搜尋、統計、整理中場次、曾改名攤主）、`#/o/Cxxxxx`（攤主頁、關聯圖、出展紀錄、認領、回報）、`#/events/CODE`（各整理中場次分頁、攤位卡、填寫）、`#/me`（登入、我管理的攤主、修改、撤回）、`#/privacy`。
+- `assets/admin.js`：站長後台 `#/admin/(queue|events|relations|owners|audit|settings)`，只有中文；權限由伺服器判斷（非站長只看到拒絕畫面）。
+- `assets/theme.js`：淺色／深色／跟隨系統，在 `<head>` 同步執行避免閃爍；`?theme=` 可指定。
+- 首頁：數字統計下方是全站關聯圖（`relations.json` ＋伺服器 `relations` 覆蓋層）；手機（≤720px）點一下才載入；可勾選顯示兩兩相連的小關係。`#/all`：全部攤位列表。
 - `assets/i18n.js`：介面文字三語。資料本身不翻譯；伺服器錯誤訊息為中文。
 - `assets/privacy.js`：隱私權政策單一來源 → `node tools/build-privacy-md.js` 產生 `docs/PRIVACY.md` 與 `site/privacy.html`。
-- 瀏覽器儲存：localStorage `lang`；sessionStorage `bdb_session`、`bdb_index`（依版本號）、`bdb_q`（搜尋字）。不使用 cookie。
+- 瀏覽器儲存：localStorage `lang`、`theme`（light／dark／system）；sessionStorage `bdb_pairs`（首頁是否顯示兩兩相連）、`bdb_devsub`（僅開發模式）、sessionStorage `bdb_session`、`bdb_index`（依版本號）、`bdb_q`（搜尋字）。不使用 cookie。
 - 縮圖：`https://lh3.googleusercontent.com/d/<id>=w480`，只對伺服器回報為公開的 ID。
 
 ## 13. 維運備忘
@@ -263,3 +270,45 @@ PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主�
 - 新增白名單網域：`FIELD_DOMAINS`（限定欄位）或 `KNOWN_DOMAINS`（降低風險分數）。
 - `relations.json` 由 `linkage_v2.py`（資料整理工具，不在 repo）產生；更新後推送即可。
 - 備份：任何批次寫入前用雲端硬碟「建立副本」並匯出 xlsx。
+
+## 14. 多位站長後台（phase 3）
+
+### 14.1 站長帳號
+- Script Property `ADMIN_UIDS`：`[{u, label, role:'owner'|'admin', added}]`。`u` 是 HMAC 代號（和攤主一樣不存 email 或 Google sub）；`label` 是站長自訂暱稱。
+- 加入：站長在網站「我的攤位 › 👑 取得站長配對碼」→ 伺服器把 8 碼配對碼放進 CacheService 10 分鐘 → 試算表擁有者在選單「👑 新增站長帳號」輸入。`isSheetOwner_` 比對 `Session.getActiveUser()` 與 `ss.getOwner()` 的 email。
+- 移除：後台「站長與安全」；擁有者站長可移除一般站長，任何人可自己退出，擁有者站長不能被別人移除。全部移除後，試算表擁有者仍可用配對碼重新加入。
+- 緊急開關：Script Property `ADMIN_WEB_DISABLED=1` → 網站後台全部拒絕（試算表選單仍可用）。
+
+### 14.2 登入時效
+- 站長 session 2 小時（一般攤主 12 小時）；session 內含 Google 實際登入時間 `t`（ID token 的 `iat`）。
+- 高風險操作（身分欄位核准／修改、批次核准、整批復原、合併攤主、停權／恢復、匯入新場次、併入主資料庫、移除站長）需要 `t` 在 10 分鐘內，否則回 `REAUTH:…`；網站跳出重新登入視窗，登入後自動重試同一個操作。
+
+### 14.3 審核規則
+- 身分欄位（SNS、官方網站、Linktree 等）：有 2 位以上站長時，第一位按「一審」→ 狀態 `待第二位確認`（審核備註記 `一審:代號`）；**另一位**站長按「第二位確認」才套用。同一人不能兩次。
+- 擁有者站長可「覆核」跳過第二位，備註至少 4 字，會記在稽核紀錄。
+- 只有 1 位站長時沿用 phase 2 的「二次驗證後核准」。
+- 批次核准會略過身分欄位。
+- 同時操作：寫入都在 `LockService` 內重新讀取狀態；已被處理的項目回 `handled:[{id,status,by}]`，網站顯示「已由 X 處理」。
+
+### 14.4 站長直接編輯
+- 攤主頁「🛠 站長直接編輯」→ `admin.ownerEdit`；場次攤位卡「🛠 站長編輯」→ `admin.eventEdit`（帶 `expect` 舊值，若期間被別人改過則拒絕）。
+- 與攤主相同的 `validateField_`（網域白名單、縮網址、公式注入、風險分數）。一般欄位立即寫入；身分欄位在 2 位以上站長時進入「待第二位確認」。
+- 每次寫入都記成「修改申請」列（類型 主資料修改／場次填寫，ID `AD…`／`AE…`）並寫一列「站長操作紀錄」（舊值、新值、位置、站長代號與暱稱），後台稽核可逐列復原；復原時若此格之後又被改過則拒絕。
+- 販售資訊格式：每行 `💠類別【內容】`（`salesFormat_`，最多 40 行）。網站用逐列編輯器，舊格式自動轉換並提示檢查。
+
+### 14.5 關聯判定與合併
+- 後台「關聯判定」：可疑配對（`relations.json` 的弱關聯＋使用者回報）→ 合併（任一方向）／確認無關／略過，寫入「關聯判定」分頁。
+- 合併 B→A：把新攤位資料庫與場次出展紀錄中 B 的攤主ID 改成 A（每格記成「修改申請」類型 `攤主合併`、批次 `RM…`），並在「ID 合併對照」加一列 `有效`。GET `owner?id=B` 回 `{redirect:A}`，網站自動導向。認領 B 的管理者會被視為管理 A（`claimsOf_` 透過對照表）。整批復原會把對照列改成 `已復原`。
+- GET `action=relations`（快取）回 `{unrelated, merged, live}`：`live` 是主資料庫裡目前共用同一 SNS 帳號的不同攤主ID（2–4 個），讓合併／無關判定和新資料不用等重新產生 `relations.json` 就生效。
+
+### 14.6 站長 API（POST，皆需 `session` 且為站長）
+讀取（不鎖）：`admin.summary`、`admin.queue`、`admin.relations`、`admin.suspensions`、`admin.events`、`admin.audit`（`q`、`kind`、`from`）。
+寫入（`LockService`）：`admin.decide`（`ids, decision: approve|approve2|override|reject|suspend, note`）、`admin.revert`（`ids` 或 `batch`）、`admin.ownerEdit`、`admin.eventEdit`、`admin.relationDecide`（`merge|unrelated|skip`）、`admin.suspend`、`admin.mode`、`admin.eventAdd`、`admin.eventRemove`、`admin.importPreview`、`admin.importCreate`、`admin.mergeEvent`、`admin.adminRemove`、`admin.adminLabel`。
+另：`admin.pairStart`（任何登入者，限 10 次／日）。站長操作頻率上限 300 次／小時。
+
+### 14.7 新分頁
+| 分頁 | 欄位 |
+|---|---|
+| 站長操作紀錄 | 時間、站長代號、站長暱稱、動作、對象、欄位、舊值、新值、位置、批次ID、相關申請ID、備註 |
+| 關聯判定 | 判定ID、時間、攤主A（保留）、攤主B、判定、站長代號、站長暱稱、備註、狀態、批次ID |
+| ID 合併對照 | 舊攤主ID、新攤主ID、時間、站長代號、批次ID、狀態 |

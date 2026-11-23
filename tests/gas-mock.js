@@ -41,8 +41,9 @@ class Sheet {
 }
 class SS {
   constructor(id, name, sheets) { this.id = id; this.name = name; this.sheets = sheets.map(([n, d, f]) => new Sheet(this, n, d, f)); }
-  getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; } getSheets() { return this.sheets; } getId() { return this.id; } getUrl() { return 'https://docs.google.com/spreadsheets/d/' + this.id; }
+  getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; } getSheets() { return this.sheets; } getId() { return this.id; } getName() { return this.name; } getUrl() { return 'https://docs.google.com/spreadsheets/d/' + this.id; }
   insertSheet(n) { const s = new Sheet(this, n, [[]]); this.sheets.push(s); return s; }
+  getOwner() { return { getEmail: () => 'owner@example.invalid' }; }
 }
 function makeEnv(opts) {
   const files = {}; let active = null; const props = Object.assign({}, opts.props || {}); const cache = new Map(); const ui = { prompts: [], alerts: [] };
@@ -64,6 +65,8 @@ function makeEnv(opts) {
       base64DecodeWebSafe: s => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')).map(b => b > 127 ? b - 256 : b),
       newBlob: x => ({ getBytes: () => toBytes(x), getDataAsString: () => fromBytes(x).toString('utf8') }),
       getUuid: () => crypto.randomUUID(),
+      DigestAlgorithm: { SHA_256: 'sha256' },
+      computeDigest: (alg, m) => Array.from(crypto.createHash(alg).update(String(m), 'utf8').digest()).map(b => b > 127 ? b - 256 : b),
       formatDate: (d, tz, f) => { const t = new Date(d.getTime() + 8 * 3600e3), p = n => String(n).padStart(2, '0');
         return f.replace('yyyy', t.getUTCFullYear()).replace('yy', String(t.getUTCFullYear()).slice(2)).replace('MM', p(t.getUTCMonth() + 1)).replace('dd', p(t.getUTCDate())).replace('HH', p(t.getUTCHours())).replace('mm', p(t.getUTCMinutes())).replace('ss', p(t.getUTCSeconds())); }
     },
@@ -71,7 +74,7 @@ function makeEnv(opts) {
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ content: s, setMimeType() { return this; }, getContent() { return s; } }) },
     LockService: { getScriptLock: () => ({ waitLock() { }, releaseLock() { } }) },
     MailApp: { sendEmail: (to, subj, body) => mails.push({ to, subj, body }) },
-    Session: { getEffectiveUser: () => ({ getEmail: () => 'owner@example.invalid' }) },
+    Session: { getEffectiveUser: () => ({ getEmail: () => 'owner@example.invalid' }), getActiveUser: () => ({ getEmail: () => env.activeUser === undefined ? 'owner@example.invalid' : env.activeUser }) },
     DriveApp: { getFileById: id => ({ getName: () => files[id].name, getParents: () => { let d = false; return { hasNext: () => !d, next: () => { d = true; return {}; } }; },
       makeCopy: (name) => { const src = files[id], nid = 'copy_' + crypto.randomBytes(12).toString('hex'); const c = new SS(nid, name, src.sheets.map(s => [s.name, s.data, Object.assign({}, s.formulas)])); files[nid] = c; return { getId: () => nid }; } }), getRootFolder: () => ({}) },
     HtmlService: { createTemplate: html => { const t = { evaluate: () => { t.html = renderTemplate(html, t); return { setWidth() { return this; }, setHeight() { return this; } }; } }; return t; } }

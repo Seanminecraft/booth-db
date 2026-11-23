@@ -29,10 +29,10 @@ window.PRIVACY = {
         '你點擊的外部 SNS 連結會開啟該網站，並適用該網站的政策。'
       ]],
       ['7. Cookie 與瀏覽器儲存', [
-        '本站本身不設定 cookie。localStorage 只存介面語言；sessionStorage 只存登入 session（12 小時內有效）。',
+        '本站本身不設定 cookie。localStorage 只存介面語言與顯示主題（淺色／深色／跟隨系統，鍵名 theme）；sessionStorage 只存登入 session（12 小時內有效）。',
         '使用 Google 登入時，Google 可能在 accounts.google.com 設定自己的 cookie。本站沒有廣告、沒有追蹤或分析工具。'
       ]],
-      ['8. 站方通知', ['發生高風險修改或異常時，系統會寄通知信給站長，內容包含申請者代號的前幾碼與被修改的攤位資訊，不含你的個人資料。']],
+      ['8. 站方通知', ['發生高風險修改或異常時，系統會寄通知信給站長，內容包含申請者代號的前幾碼與被修改的攤位資訊，不含你的個人資料。', '站長同樣以 Google 登入、只保存 HMAC 代號與站長自訂的暱稱；站長的每一個操作（誰、何時、修改前後的值）記錄在試算表「站長操作紀錄」分頁，供稽核與復原。']],
       ['9. 聯絡我們', ['有任何隱私問題或刪除要求，請聯絡：{CONTACT}']],
       ['10. 政策變更', ['政策若有修改，會更新本頁的「最後更新」日期；重大變更會在網站首頁公告。']]
     ]
@@ -64,10 +64,10 @@ window.PRIVACY = {
         'External SNS links you click open those sites, which have their own policies.'
       ]],
       ['7. Cookies and browser storage', [
-        'This site sets no cookies of its own. localStorage holds only your interface language; sessionStorage holds only the sign-in session (valid for 12 hours).',
+        'This site sets no cookies of its own. localStorage holds only your interface language and display theme (light / dark / follow system, key “theme”); sessionStorage holds only the sign-in session (valid for 12 hours).',
         'When you use Google Sign-In, Google may set its own cookies on accounts.google.com. There are no ads, trackers or analytics on this site.'
       ]],
-      ['8. Admin alerts', ['For high-risk edits or anomalies the system emails the admin. The email contains the first characters of the applicant code and the booth data being changed, not your personal data.']],
+      ['8. Admin alerts', ['For high-risk edits or anomalies the system emails the admin. The email contains the first characters of the applicant code and the booth data being changed, not your personal data.', 'Admins also sign in with Google; only their HMAC code and a self-chosen nickname are stored. Every admin action (who, when, old and new values) is recorded in the “站長操作紀錄” (admin log) tab for audit and undo.']],
       ['9. Contact', ['For privacy questions or deletion requests: {CONTACT}']],
       ['10. Changes', ['If this policy changes we update the "last updated" date on this page and announce major changes on the home page.']]
     ]
@@ -99,10 +99,10 @@ window.PRIVACY = {
         '外部 SNS へのリンクを開くと、そのサイトのポリシーが適用されます。'
       ]],
       ['7. Cookie とブラウザ保存領域', [
-        '当サイト自体は Cookie を設定しません。localStorage には表示言語のみ、sessionStorage にはログインセッション（12 時間有効）のみを保存します。',
+        '当サイト自体は Cookie を設定しません。localStorage には表示言語と表示テーマ（ライト／ダーク／システムに従う、キー名 theme）のみ、sessionStorage にはログインセッション（12 時間有効）のみを保存します。',
         'Google ログインを使うと、Google が accounts.google.com に独自の Cookie を設定する場合があります。広告・トラッキング・アクセス解析は使用していません。'
       ]],
-      ['8. 管理者への通知', ['リスクの高い修正や異常があった場合、管理者に通知メールが送られます。内容は申請者コードの先頭数文字と対象のブース情報のみで、あなたの個人情報は含みません。']],
+      ['8. 管理者への通知', ['リスクの高い修正や異常があった場合、管理者に通知メールが送られます。内容は申請者コードの先頭数文字と対象のブース情報のみで、あなたの個人情報は含みません。', '管理者も Google でログインし、保存されるのは HMAC コードと本人が決めたニックネームのみです。管理者の操作（誰が・いつ・変更前後の値）はすべてシートの「站長操作紀錄」タブに記録され、監査と取り消しに使われます。']],
       ['9. お問い合わせ', ['プライバシーに関するご質問や削除のご依頼：{CONTACT}']],
       ['10. 変更', ['本ポリシーを変更した場合、このページの「最終更新日」を更新し、重要な変更はトップページでお知らせします。']]
     ]

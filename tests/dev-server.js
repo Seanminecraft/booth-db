@@ -11,7 +11,8 @@ const PUBLIC_RE = /^1[A-Za-z0-9_-]{24,}$/; // 開發模式：fixture 裡標為�
 function fetch(url, o) {
   const resp = (code, body, headers) => ({ getResponseCode: () => code, getContentText: () => body || '', getHeaders: () => headers || {} });
   if (url.startsWith('https://oauth2.googleapis.com/tokeninfo')) { const m = decodeURIComponent(url.split('id_token=')[1]).match(/^fake:(.+)$/); if (!m) return resp(400, '{}');
-    return resp(200, JSON.stringify({ aud: CLIENT, iss: 'https://accounts.google.com', sub: m[1], exp: String(Math.floor(Date.now() / 1000) + 3600) })); }
+    const stale = /~stale$/.test(m[1]), now = Math.floor(Date.now() / 1000); // 「fake:sub~stale」＝20 分鐘前登入（測試重新登入視窗）
+    return resp(200, JSON.stringify({ aud: CLIENT, iss: 'https://accounts.google.com', sub: m[1].replace(/~stale$/, ''), iat: String(stale ? now - 1200 : now), exp: String(now + 3600) })); }
   if (url.startsWith('https://lh3.googleusercontent.com/d/')) { const id = url.split('/d/')[1].split('=')[0]; return /A{10}/.test(id) ? resp(403, '') : resp(200, '', { 'Content-Type': 'image/jpeg' }); }
   if (url.startsWith('https://safebrowsing.googleapis.com/')) return resp(200, '{}');
   return resp(404, '');
@@ -35,6 +36,34 @@ const uid = G.uidOf_('dev-owner-1');
 G.sheet_('認領申請').appendRow(['CLDEV', G.now_(), 'C00968', '心桃魅夢', uid, 'SNS 貼文', '', 'JP-DEV000', '開發資料', '核准', G.now_(), '', 'owner', G.now_()]);
 // 開發用帳號 dev-owner-2：已核准管理 加帕利天藍怪預警中心（C02492，只有出展紀錄、主資料庫沒有列；回歸測試用）
 G.sheet_('認領申請').appendRow(['CLDEV2', G.now_(), 'C02492', '加帕利天藍怪預警中心', G.uidOf_('dev-owner-2'), 'SNS 貼文', '', 'JP-DEV002', '開發資料', '核准', G.now_(), '', 'owner', G.now_()]);
+// ===== 站長（開發）：用真實程式路徑初始化、配對兩位站長（dev-admin＝擁有者站長「小編A」、dev-admin-2＝站長「小編B」） =====
+const P = b => JSON.parse(G.doPost({ postData: { contents: JSON.stringify(b) } }).getContent());
+const S_ = sub => P({ action: 'login', idToken: 'fake:' + sub }).session;
+const log = (r, l) => { if (!r.ok) console.log('seed fail', l, r.error); return r; };
+G.menuInitAdmin();
+[['dev-admin', '小編A'], ['dev-admin-2', '小編B']].forEach(([sub, label]) => { const c = P({ action: 'admin.pairStart', session: S_(sub), label }).data.code; env.ui.prompts.push(c); G.menuAddAdmin(); });
+if (!process.env.NO_SEED) {
+  // 樣本申請（真實 API 路徑）
+  const approveClaim = (sub, id, name) => G.sheet_('認領申請').appendRow(['CL' + id, '2026-11-20 21:14:03', id, name, G.uidOf_(sub), 'SNS 貼文', '', 'JP-OK0000', '', '核准', '2026-11-20 22:00:00', '站長 小編A', 'owner', G.now_()]);
+  approveClaim('owner-c00007', 'C00007', '青雨アメ'); approveClaim('owner-c00045', 'C00045', '貓頭鷹辦事處');
+  const sa = S_('claimer-a'), sb = S_('claimer-b'), sc = S_('claimer-c'), s1 = S_('dev-owner-1'), s7 = S_('owner-c00007');
+  log(P({ action: 'claim', session: sa, ownerId: 'C00113', proofUrl: 'https://twitter.com/e831118/status/1859990001112223334', note: '我是 Feshana 的作者，貼文已發在主帳號' }), 'claim a');
+  log(P({ action: 'claim', session: sb, ownerId: 'C00113', proofUrl: 'https://x.com/feshana_official2/status/1859990001112229999', note: '本人' }), 'claim b');
+  log(P({ action: 'claim', session: sc, ownerId: 'C00002', method: 'dm', note: '已私訊加帕利粉專，帳號 TOHOORIN' }), 'claim c');
+  log(P({ action: 'edit', session: s1, ownerId: 'C00968', rowName: '心桃魅夢', changes: { 'IG': 'https://www.instagram.com/mion_kokomo_new/?igsh=abc', '官方網站': 'https://mionkokomo.carrd.co/', '筆名': 'Mion Kokomo 心桃' } }), 'edit 968');
+  log(P({ action: 'eventfill', session: s1, ownerId: 'C00968', event: 'FFK19', booth: '心桃魅夢', boothNo: '子05', changes: { '販售資訊': '💠新刊【心桃畫冊 Vol.2 NT$300】\n💠周邊【壓克力立牌、明信片】', '預告': 'https://x.com/MionKokomo/status/1860001112223334445', '試閱': 'https://www.pixiv.net/artworks/124578963?utm_source=twitter' } }), 'fill 968');
+  log(P({ action: 'edit', session: s7, ownerId: 'C00007', rowName: '', changes: { 'TWITTER (1)': 'https://x.com/duck_doodle_new', 'Linktree等連結整合網頁': 'https://xn--80ak6aa92e.com/duck' } }), 'edit 7');
+  log(P({ action: 'eventfill', session: s7, ownerId: 'C00007', event: 'FFK19', booth: '青雨アメ', changes: { '販售資訊': '💠新刊【青雨新刊《梅雨のあとで》NT$250】\n💠周邊【壓克力鑰匙圈】', '品書': 'https://www.plurk.com/p/3h9xk2' } }), 'fill 7');
+  log(P({ action: 'report', session: sa, a: 'C00002', b: 'C00158', kind: 'split', note: '這兩個不是同一位，只是都用買動漫賣場' }), 'report');
+  // 站長操作（稽核頁有實際紀錄）
+  const A1 = S_('dev-admin'), A2 = S_('dev-admin-2');
+  const q = P({ action: 'admin.queue', session: A2 }).data;
+  const c45 = q.claims.find(c => c.ownerId === 'C00002'); if (c45) log(P({ action: 'admin.decide', session: A2, ids: [c45.id], decision: 'approve', note: '粉專私訊已確認' }), 'decide claim');
+  const b7 = q.batches.find(b => b.ownerId === 'C00007' && b.type === '主資料修改'); const tw7 = b7 && b7.items.find(i => i.field === 'TWITTER (1)');
+  if (tw7) log(P({ action: 'admin.decide', session: A2, ids: [tw7.id], decision: 'approve2', note: '已用原 X 帳號私訊確認' }), 'first approval');
+  log(P({ action: 'admin.ownerEdit', session: A2, ownerId: 'C00045', rowName: '', changes: { '筆名': '狐狸,タク道,小狐', '創作者類型': '繪師' } }), 'admin edit 45');
+  log(P({ action: 'admin.relationDecide', session: A1, a: 'C00004', b: 'C00785', decision: 'unrelated', note: '筆名相同但作品風格不同' }), 'unrelated');
+}
 G.bumpVersion_();
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png' };
 http.createServer((req, res) => {
@@ -50,4 +79,4 @@ http.createServer((req, res) => {
   const p = path.normalize(path.join(ROOT, u.pathname === '/' ? 'index.html' : u.pathname));
   if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); return res.end('not found'); }
   res.writeHead(200, { 'Content-Type': MIME[path.extname(p)] || 'application/octet-stream' }); fs.createReadStream(p).pipe(res);
-}).listen(PORT, () => console.log('dev server http://localhost:' + PORT + '  (dev login: dev-owner-1 manages C00968, dev-owner-2 manages C02492)'));
+}).listen(PORT, () => console.log('dev server http://localhost:' + PORT + '  (dev login: dev-owner-1 manages C00968, dev-owner-2 manages C02492, dev-admin = 擁有者站長 小編A, dev-admin-2 = 站長 小編B)'));
