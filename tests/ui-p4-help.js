@@ -54,7 +54,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const hasThumb = await p.evaluate(() => { const k = [...document.querySelectorAll('#mbody .k')].find(x => x.querySelector('.helpq') && /Google/.test(x.textContent)); if (k) k.parentNode.scrollIntoView({ block: 'center' }); return !!k; });
     ok(L + ' 場次填寫有縮圖說明「?」', hasThumb); await sleep(300); await snap(p, L + '-thumb');
     const hasSales = await p.evaluate(() => { const x = [...document.querySelectorAll('#mbody .helpq')].find(a => /sales$/.test(a.getAttribute('href'))); if (x) x.parentNode.parentNode.scrollIntoView({ block: 'center' }); return !!x; });
-    ok(L + ' 販售資訊有說明「?」', hasSales); await sleep(300); await snap(p, L + '-sales'); await p.close();
+    ok(L + ' 販售資訊有說明「?」', hasSales);
+    // 截圖示範一個套組（不送出）
+    const BN = { zh: ['新刊套組', '畫冊 Vol.2', '壓克力立牌'], en: ['New book set', 'Art book Vol.2', 'Acrylic stand'], ja: ['新刊セット', '画集 Vol.2', 'アクリルスタンド'] }[L];
+    await p.evaluate(BN => { const ed = document.querySelector('#modal .sales-ed').parentNode; const bt = ed.querySelectorAll('.acts button')[1]; bt.click();
+      const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input')); };
+      set(ed.querySelector('.sbundle .srow input'), BN[0]); const its = ed.querySelectorAll('.sbundle .bitem input'); set(its[0], BN[1]); set(its[1], BN[2]);
+      ed.querySelector('.sbundle').scrollIntoView({ block: 'center' }); }, BN);
+    ok(L + ' 販售資訊可加套組（自動編號）', await p.evaluate(() => /\n?1\. .+\n2\. /.test(document.querySelector('#modal .sales-pv').textContent)));
+    await sleep(300); await snap(p, L + '-sales'); await p.close();
     p = await pg(`?theme=light&lang=${L}&devlogin=claimer-a#/me`, { wait: 1800 }); await snap(p, L + '-status'); await p.close();
     p = await pg(`?theme=dark&lang=${L}#/help/claim`, { w: 1100, h: 900, wait: 1200 });
     const ht = await p.evaluate(() => ({ n: document.querySelectorAll('.htask').length, img: document.querySelectorAll('.hshot').length, faq: document.querySelectorAll('details.faq').length, nav: !!document.querySelector('#nav a[href="#/help"]') }));

@@ -18,6 +18,7 @@
   var COLORS = { owner: '#5b9df9', name: '#ff9f43', sns: '#1dd1a1', group: '#b48cff', weak: '#8b9cb3' };
 
   /* ---------- 小工具 ---------- */
+  function tz(k, v) { var s = I.zh[k] || k; if (v) Object.keys(v).forEach(function (x) { s = s.split('{' + x + '}').join(v[x]); }); return s; }
   function t(k, v) { var s = (I[lang] && I[lang][k]) || I.zh[k] || k; if (v) Object.keys(v).forEach(function (x) { s = s.split('{' + x + '}').join(v[x]); }); return s; }
   function h(tag, attrs) {
     var e = document.createElement(tag), a = attrs || {};
@@ -304,7 +305,7 @@
     return h('div', { class: 'card bk' + (mine ? ' mine' : '') },
       h('div', { class: 'oc', style: 'cursor:default;padding:0;background:none' }, b.thumb ? thumb(b.thumb) : null,
         h('div', { class: 'bd' }, h('div', { class: 'nm', text: b.name }), h('div', { class: 'meta' }, t('day1') + ' ' + (b.day1 || '—') + ' ・ ' + t('day2') + ' ' + (b.day2 || '—')))),
-      ['筆名', '創作者類型', '商品年齡分類', '作品類型 (原創、二創)', '二創參考作品 (原創免填)', '販售資訊', '特殊標籤或備註'].filter(function (k) { return f[k]; }).map(function (k) { return h('div', { class: 'f' + (k === '販售資訊' ? ' sales' : '') }, h('i', { text: k.replace(/ \(.*\)$/, '') }), f[k]); }),
+      ['筆名', '創作者類型', '商品年齡分類', '作品類型 (原創、二創)', '二創參考作品 (原創免填)', '販售資訊', '特殊標籤或備註'].filter(function (k) { return f[k]; }).map(function (k) { return h('div', { class: 'f' + (k === '販售資訊' ? ' sales' : '') }, h('i', { text: k.replace(/ \(.*\)$/, '') }), k === '販售資訊' ? renderSales(f[k]) : f[k]); }),
       links.length ? h('div', { class: 'sns', style: 'margin-top:6px' }, links.slice(0, 10).map(snsLink)) : null,
       h('div', { class: 'acts', style: 'margin-top:8px' }, b.id ? h('a', { class: 'btn ghost', href: '#/o/' + b.id, text: t('ev_open_owner') }) : null,
         mine ? h('button', { class: 'btn', onclick: function () { fillFlow(d, b); }, text: t('ev_fill_mine') }) : null,
@@ -409,7 +410,7 @@
   function fieldForm(fields, current, onSubmit, extra, isAdmin) {
     var inputs = {}, wrap = h('div'), pv = h('div');
     fields.forEach(function (f) {
-      var long = LONG_FIELDS.indexOf(f) >= 0, el = f === '販售資訊' ? salesEditor(current[f] || '') : long ? h('textarea', { class: 'in' }) : h('input', { class: 'in', placeholder: TEXT_FIELDS.indexOf(f) < 0 ? 'https://' : '' });
+      var long = LONG_FIELDS.indexOf(f) >= 0, el = f === '販售資訊' ? salesEditor(current[f] || '', isAdmin) : long ? h('textarea', { class: 'in' }) : h('input', { class: 'in', placeholder: TEXT_FIELDS.indexOf(f) < 0 ? 'https://' : '' });
       if (f !== '販售資訊') el.value = current[f] || ''; inputs[f] = el; add(wrap, h('div', { class: 'frow' }, h('div', { class: 'k', text: f }), el));
     });
     var btnPv = h('button', { class: 'btn', text: t('preview') });
@@ -427,39 +428,91 @@
     });
     return [extra || null, wrap, h('p', { class: 'acts' }, btnPv), pv];
   }
-  /* 販售資訊編輯器：一列一項「💠類別【內容】」。讀入舊格式時盡量轉換（「1. 子項」併入上一項內容），並即時顯示寫入整理表的文字。 */
-  var SALES_RE = /^💠\s*([^【】\n]*?)\s*【\s*([^【】\n]*?)\s*】$/;
-  function parseSales(v) {
-    var out = [];
-    String(v || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (l) {
-      var m = l.match(SALES_RE); if (m) { out.push([m[1], m[2]]); return; }
-      if (/^(\d+[.、)]|[・•\-※])\s*/.test(l) && out.length) { var last = out[out.length - 1]; last[1] = (last[1] ? last[1] + '、' : '') + l.replace(/^(\d+[.、)]|[・•\-※])\s*/, '').replace(/[【】]/g, ''); return; }
-      var c = l.replace(/^💠\s*/, ''), k = c.match(/^([^：:【（(]{1,12})[：:]\s*(.+)$/) || c.match(/^([^【]{1,20})【([^】]*)】?/);
-      if (k) out.push([k[1].trim().replace(/[【】]/g, ''), k[2].replace(/[【】]/g, '').trim()]); else out.push([t('sales_default_cat'), c.replace(/[【】]/g, '')]);
+  /* 販售資訊（p6）：單品「💠類別【內容】」一行一項；套組「💠套組名稱」＋「1. 商品名」「2. 商品名」…；兩種可以混用、排序。
+   * 讀入時不丟任何文字：沒有【】的「💠文字」轉成單品（類別預設「商品」並提示）；其他看不懂的行保留成「其他文字」原樣顯示，送出前由伺服器檢查格式。 */
+  var SALES_RE = /^💠\s*([^【】\n]*?)\s*【\s*([^【】\n]*?)\s*】$/, SALES_HEAD = /^💠\s*([^【】\n]+?)\s*$/, SALES_NUM = /^(\d{1,2})\s*[.．、)）]\s*(.+)$/;
+  function parseSales(v, defCat) {
+    var L = String(v || '').replace(/\r/g, '').split('\n').map(function (x) { return x.replace(/\u3000/g, ' ').trim(); }).filter(Boolean), out = [], b = null, legacy = false;
+    function text(l) { var last = out[out.length - 1]; if (last && last.k === 'text') last.text += '\n' + l; else out.push({ k: 'text', text: l }); }
+    L.forEach(function (l, i) {
+      var m = l.match(SALES_RE), n;
+      if (m && (m[1] || m[2])) { b = null; out.push({ k: 'item', cat: m[1], con: m[2] }); return; }
+      if (b && (n = l.match(SALES_NUM)) && +n[1] === b.items.length + 1 && !/[【】]/.test(n[2])) { b.items.push(n[2].trim()); return; }
+      var nx = L[i + 1] && L[i + 1].match(SALES_NUM);
+      if ((m = l.match(SALES_HEAD)) && nx && +nx[1] === 1) { b = { k: 'bundle', name: m[1], items: [] }; out.push(b); return; }
+      b = null;
+      if (m) { legacy = true; out.push({ k: 'item', cat: defCat, con: m[1] }); return; }
+      text(l);
     });
-    return out;
+    out.legacy = legacy; return out;
   }
-  function salesEditor(initial) {
-    var rows = parseSales(initial), list = h('div', { class: 'sales-ed' }), pv = h('pre', { class: 'sales-pv' });
-    var legacy = initial && !String(initial).split('\n').filter(function (x) { return x.trim(); }).every(function (x) { return SALES_RE.test(x.trim()); });
-    var box = h('div', null, legacy ? h('div', { class: 'note warn', text: t('sales_converted') }) : null, h('div', { class: 'muted', style: 'font-size:12px' }, t('sales_hint'), ' ', helpQ('sales')), list,
-      h('button', { class: 'pill sm', type: 'button', onclick: function () { rows.push(['', '']); draw(); var ins = list.querySelectorAll('input'); if (ins.length) ins[ins.length - 2].focus(); }, text: '＋ ' + t('sales_add') }),
-      h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px', text: t('sales_preview') }), pv);
+  function serSales(blocks) {
+    return blocks.map(function (x) {
+      if (x.k === 'item') { var c = (x.cat || '').trim(), v = (x.con || '').trim(); return c || v ? '💠' + c + '【' + v + '】' : ''; }
+      if (x.k === 'bundle') { var it = x.items.map(function (s) { return s.trim(); }).filter(Boolean); if (!x.name.trim() && !it.length) return ''; return ['💠' + x.name.trim()].concat(it.map(function (s, i) { return (i + 1) + '. ' + s; })).join('\n'); }
+      return (x.text || '').trim();
+    }).filter(Boolean).join('\n');
+  }
+  /** 顯示用：單品一行、套組＝標題＋編號清單、其他文字原樣（全部 textContent）。 */
+  function renderSales(v) {
+    var blocks = parseSales(v, ''), box = h('div', { class: 'salesv' });
+    blocks.forEach(function (x) {
+      if (x.k === 'item') add(box, h('div', { class: 'si' }, '💠', x.cat ? [h('b', { text: x.cat }), '【' + x.con + '】'] : x.con));
+      else if (x.k === 'bundle') add(box, h('div', { class: 'sb' }, h('div', { class: 'sbh' }, '💠', h('b', { text: x.name }), h('span', { class: 'tag sm', text: t('sales_bundle_tag') })), h('ol', null, x.items.map(function (s) { return h('li', { text: s }); }))));
+      else add(box, h('div', { class: 'st', text: x.text }));
+    });
+    return box;
+  }
+  function salesEditor(initial, isAdmin) {
+    var T = function (k, p) { return isAdmin ? tz(k, p) : t(k, p); };
+    var rows = parseSales(initial, T('sales_default_cat')), list = h('div', { class: 'sales-ed' }), pv = h('pre', { class: 'sales-pv' });
+    var p6 = !S.meta || !S.meta.version || S.meta.version >= '2026-11-24-p6';
+    var addBundleBtn = h('button', { class: 'pill sm', type: 'button', disabled: !p6, onclick: function () { touch(); rows.push({ k: 'bundle', name: '', items: ['', ''] }); draw(); var ins = list.querySelectorAll('.sbundle:last-child input'); if (ins.length) ins[0].focus(); }, text: '＋ ' + T('sales_add_bundle') });
+    var box = h('div', null, rows.legacy ? h('div', { class: 'note warn', text: T('sales_converted') }) : null,
+      rows.some(function (x) { return x.k === 'text'; }) ? h('div', { class: 'note warn', text: T('sales_text_warn') }) : null,
+      h('div', { class: 'muted', style: 'font-size:12px' }, T('sales_hint'), ' ', helpQ('sales', isAdmin)), list,
+      h('div', { class: 'acts', style: 'justify-content:flex-start;gap:8px' },
+        h('button', { class: 'pill sm', type: 'button', onclick: function () { touch(); rows.push({ k: 'item', cat: '', con: '' }); draw(); var ins = list.querySelectorAll('input'); if (ins.length) ins[ins.length - 2].focus(); }, text: '＋ ' + T('sales_add') }), addBundleBtn),
+      !p6 ? h('div', { class: 'muted', style: 'font-size:12px', text: T('sales_bundle_old') }) : null,
+      h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px', text: T('sales_preview') }), pv);
     function touch() { box.dirty = true; }
-    function ser() { return rows.filter(function (r) { return r[0].trim() || r[1].trim(); }).map(function (r) { return '💠' + r[0].trim() + '【' + r[1].trim() + '】'; }).join('\n'); }
+    function upd() { pv.textContent = serSales(rows) || '—'; }
+    function strip(v) { return v.replace(/[【】\n]/g, ''); }
+    function moveBtns(i) { return [h('button', { class: 'pill sm', type: 'button', title: '↑', 'aria-label': '↑', disabled: i === 0, onclick: function () { touch(); rows.splice(i - 1, 0, rows.splice(i, 1)[0]); draw(); }, text: '↑' }),
+      h('button', { class: 'pill sm', type: 'button', title: '↓', 'aria-label': '↓', disabled: i === rows.length - 1, onclick: function () { touch(); rows.splice(i + 1, 0, rows.splice(i, 1)[0]); draw(); }, text: '↓' }),
+      h('button', { class: 'pill sm', type: 'button', title: '×', 'aria-label': '×', onclick: function () { touch(); rows.splice(i, 1); if (!rows.length) rows.push({ k: 'item', cat: '', con: '' }); draw(); }, text: '×' })]; }
     function draw() {
       clear(list);
       rows.forEach(function (r, i) {
-        var cat = h('input', { class: 'in', placeholder: t('sales_cat'), value: r[0], maxlength: 30 }), con = h('input', { class: 'in', placeholder: t('sales_content'), value: r[1] });
-        cat.addEventListener('input', function () { touch(); r[0] = cat.value.replace(/[【】\n]/g, ''); pv.textContent = ser() || '—'; }); con.addEventListener('input', function () { touch(); r[1] = con.value.replace(/[【】\n]/g, ''); pv.textContent = ser() || '—'; });
-        add(list, h('div', { class: 'srow' }, h('span', { class: 'dia', text: '💠' }), cat, h('span', { class: 'br', text: '【' }), con, h('span', { class: 'br', text: '】' }),
-          h('button', { class: 'pill sm', type: 'button', title: '↑', disabled: i === 0, onclick: function () { touch(); rows.splice(i - 1, 0, rows.splice(i, 1)[0]); draw(); }, text: '↑' }),
-          h('button', { class: 'pill sm', type: 'button', title: '×', onclick: function () { touch(); rows.splice(i, 1); if (!rows.length) rows.push(['', '']); draw(); }, text: '×' })));
+        if (r.k === 'item') {
+          var cat = h('input', { class: 'in', placeholder: T('sales_cat'), value: r.cat, maxlength: 30 }), con = h('input', { class: 'in', placeholder: T('sales_content'), value: r.con });
+          cat.addEventListener('input', function () { touch(); r.cat = strip(cat.value); upd(); }); con.addEventListener('input', function () { touch(); r.con = strip(con.value); upd(); });
+          add(list, h('div', { class: 'srow' }, h('span', { class: 'dia', text: '💠' }), cat, h('span', { class: 'br', text: '【' }), con, h('span', { class: 'br', text: '】' }), moveBtns(i)));
+        } else if (r.k === 'bundle') {
+          var nm = h('input', { class: 'in', placeholder: T('sales_bundle_name'), value: r.name, maxlength: 40 });
+          nm.addEventListener('input', function () { touch(); r.name = strip(nm.value); upd(); });
+          var ol = h('div', { class: 'bitems' });
+          r.items.forEach(function (it, j) {
+            var inp = h('input', { class: 'in', placeholder: T('sales_bundle_item'), value: it });
+            inp.addEventListener('input', function () { touch(); r.items[j] = strip(inp.value); upd(); });
+            inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); touch(); r.items.splice(j + 1, 0, ''); draw(); var q = list.children[i] && list.children[i].querySelectorAll('.bitem input')[j + 1]; if (q) q.focus(); } });
+            add(ol, h('div', { class: 'bitem' }, h('span', { class: 'num', text: (j + 1) + '.' }), inp,
+              h('button', { class: 'pill sm', type: 'button', title: '↑', 'aria-label': '↑', disabled: j === 0, onclick: function () { touch(); r.items.splice(j - 1, 0, r.items.splice(j, 1)[0]); draw(); }, text: '↑' }),
+              h('button', { class: 'pill sm', type: 'button', title: '×', 'aria-label': '×', onclick: function () { touch(); r.items.splice(j, 1); if (!r.items.length) r.items.push(''); draw(); }, text: '×' })));
+          });
+          add(list, h('div', { class: 'sbundle' }, h('div', { class: 'srow' }, h('span', { class: 'dia', text: '💠' }), h('span', { class: 'tag sm', text: T('sales_bundle_tag') }), nm, moveBtns(i)), ol,
+            h('button', { class: 'pill sm', type: 'button', style: 'margin-left:34px', onclick: function () { touch(); r.items.push(''); draw(); var q = list.children[i] ? list.children[i].querySelectorAll('.bitem input') : []; if (q.length) q[q.length - 1].focus(); }, text: '＋ ' + T('sales_bundle_add_item') })));
+        } else {
+          var ta = h('textarea', { class: 'in', rows: Math.min(6, r.text.split('\n').length + 1) }); ta.value = r.text;
+          ta.addEventListener('input', function () { touch(); r.text = ta.value; upd(); });
+          add(list, h('div', { class: 'stext' }, h('div', { class: 'muted', style: 'font-size:12px', text: T('sales_text_row') }), h('div', { class: 'srow' }, ta, moveBtns(i)),
+            h('button', { class: 'pill sm', type: 'button', onclick: function () { touch(); var ls = r.text.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); rows.splice.apply(rows, [i, 1].concat(ls.map(function (x) { return { k: 'item', cat: T('sales_default_cat'), con: strip(x) }; }))); draw(); }, text: T('sales_text_conv') })));
+        }
       });
-      pv.textContent = ser() || '—';
+      upd();
     }
-    if (!rows.length) rows.push(['', '']); draw(); box.dirty = false;
-    Object.defineProperty(box, 'value', { get: function () { return ser(); } });
+    if (!rows.length) rows.push({ k: 'item', cat: '', con: '' }); draw(); box.dirty = false;
+    Object.defineProperty(box, 'value', { get: function () { return serSales(rows); } });
     return box;
   }
   function editFlow(id) {

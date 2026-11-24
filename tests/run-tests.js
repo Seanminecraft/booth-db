@@ -594,5 +594,44 @@ ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@examp
   ok('[p5] 送出後仍未核准：攤主不能修改（需站長核准）', A({ action: 'me', session: U2.session }).me.owned.indexOf(o2) < 0);
   ok('[p5] 認領申請分頁欄位數不變（14 欄，沒有新增欄位）', claims().every(r => r.length <= 14) && sheet(DB_ID, '認領申請').data[0].length === 14);
 }
+// ===== 16. 販售資訊「套組」（p6） =====
+{
+  const A = b => post(b), login = sub => post({ action: 'login', idToken: 'fake:' + sub });
+  const ex = '💠套組1\n1. 商品名1-1\n2. 商品名1-2\n💠套組2\n1. 商品名2-1\n2. 商品名2-2\n💠單品【商品1】\n💠新刊【畫冊 Vol.2 NT$300】';
+  const f1 = G.salesFormat_(ex);
+  ok('[p6] 套組＋單品混用：原樣通過（換行、💠、編號都保留）', f1.ok && f1.value === ex, JSON.stringify(f1));
+  const messy = '  💠 套組A \r\n1.商品甲\n 2． 商品乙 \n\u3000💠 新刊 【 畫冊 】';
+  const f2 = G.salesFormat_(messy);
+  ok('[p6] 空白、全形句點、\\r 自動整理成標準格式', f2.ok && f2.value === '💠套組A\n1. 商品甲\n2. 商品乙\n💠新刊【畫冊】', JSON.stringify(f2.value));
+  ok('[p6] 套組沒有商品 → 拒絕', !G.salesFormat_('💠套組1\n💠單品【x】').ok && !G.salesFormat_('💠套組1').ok);
+  ok('[p6] 編號必須從 1 連號', /應該是 2\./.test(G.salesFormat_('💠套組1\n1. a\n3. b').error) && !G.salesFormat_('💠套組1\n2. a').ok);
+  ok('[p6] 編號商品不在套組下 → 拒絕', !G.salesFormat_('1. a\n2. b').ok && !G.salesFormat_('💠單品【x】\n1. a').ok);
+  ok('[p6] 自由文字仍不接受（指出第幾行）', /第 2 行/.test(G.salesFormat_('💠單品【x】\n皆有贈品').error));
+  ok('[p6] 套組商品名不能有【】', !G.salesFormat_('💠套組\n1. a【b】').ok);
+  ok('[p6] 一個套組最多 30 個商品', !G.salesFormat_('💠套組\n' + Array.from({ length: 31 }, (_, i) => (i + 1) + '. x').join('\n')).ok);
+  ok('[p6] HTML 標籤仍被擋（套組商品名）', !G.validateField_('販售資訊', '💠套組\n1. <img src=x onerror=alert(1)>', '').ok);
+  ok('[p6] 公式注入：開頭不是 💠 的格子不會出現（格式就擋下）；safeCell_ 不改動 💠 開頭', G.safeCell_(ex) === ex && !G.validateField_('販售資訊', '=1+1', '').ok);
+  const vf = G.validateField_('販售資訊', ex, '');
+  ok('[p6] validateField_ 通過、值不變', vf.ok && vf.value === ex, vf.block);
+  // 站長直接寫入場次整理表＋攤主填寫（即時制）都原樣寫入
+  const evS = env.files[FFK].getSheetByName('攤位整理表 請在此填寫資訊'), EH = evS.data[0], sc = EH.indexOf('販售資訊');
+  const ti = evS.data.slice(1).findIndex(r => r[0] && evS.data.filter(x => x[0] === r[0]).length === 1 && !edits().some(e => String(e[5]).split('｜')[0] === r[0])) + 2, tb = evS.data[ti - 1];
+  const AD = login('admin-one');
+  const ee = A({ action: 'admin.eventEdit', session: AD.session, event: 'FFK19', booth: tb[0], expect: { '販售資訊': tb[sc] || '' }, changes: { '販售資訊': ex } });
+  ok('[p6] 站長直接修改場次販售資訊：套組格式原樣寫入整理表', ee.ok && evS.data[ti - 1][sc] === ex, JSON.stringify(ee.error || evS.data[ti - 1][sc]));
+  const rid = ee.ok && ee.data.items.find(i => i.field === '販售資訊').id;
+  ok('[p6] 套組寫入可復原', rid && A({ action: 'admin.revert', session: AD.session, ids: [rid] }).data.ok === 1 && evS.data[ti - 1][sc] === (tb[sc] || ''));
+  const bad = A({ action: 'admin.eventEdit', session: AD.session, event: 'FFK19', booth: tb[0], changes: { '販售資訊': '💠套組1\n1. a\n3. b' } });
+  ok('[p6] 格式錯誤時站長寫入也被擋、整理表不變', bad.ok === false && evS.data[ti - 1][sc] === (tb[sc] || ''), bad.error);
+  // 攤主送出（審核制）→ 修改申請的新值保留換行；站長核准後原樣寫入
+  const ev = get({ action: 'event', code: 'FFK19' }).data, takenIds = new Set(claims().map(r => r[2]));
+  const bk = ev.booths.find(b => b.id && !takenIds.has(b.id) && ev.booths.filter(x => x.name === b.name).length === 1 && !G.ownerSuspended_(b.id));
+  const PO = login('p6-owner'), upo = G.readSession_(PO.session);
+  A({ action: 'claim', session: PO.session, ownerId: bk.id, method: 'discord' }); claims().forEach((r, i) => { if (r[4] === upo) approveClaimRow(i); });
+  const fr = A({ action: 'eventfill', session: PO.session, ownerId: bk.id, event: 'FFK19', booth: bk.name, changes: { '販售資訊': ex } });
+  const er6 = edits().find(e => e[9] === upo && e[6] === '販售資訊');
+  ok('[p6] 攤主送出套組：修改申請的新值與輸入完全相同（含換行）', fr.ok && er6 && er6[8] === ex, JSON.stringify(fr.error || (er6 && er6[8])));
+  ok('[p6] 前端／後端格式一致：p5 單品格式仍通過', G.salesFormat_('💠 新刊【畫冊 Vol.2 NT$300】\n💠周邊【 壓克力立牌、明信片 】').value === '💠新刊【畫冊 Vol.2 NT$300】\n💠周邊【壓克力立牌、明信片】');
+}
 ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

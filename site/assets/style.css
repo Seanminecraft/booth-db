@@ -115,13 +115,17 @@ nav.side{display:block;margin-left:0;align-self:start;position:sticky;top:80px}
 .note.admx{border-color:var(--violet);background:rgba(180,140,255,.10)}
 .bk .f.sales{white-space:pre-wrap}
 .sales-ed{display:flex;flex-direction:column;gap:6px;margin:6px 0}
-.sales-ed .srow{display:grid;grid-template-columns:auto minmax(80px,1fr) auto minmax(140px,2.2fr) auto auto auto;gap:4px;align-items:center}
+.sales-ed .srow{display:flex;flex-wrap:wrap;gap:4px;align-items:center}.sales-ed .srow .in{flex:1 1 120px;min-width:0}.sales-ed .srow .in+.br+.in{flex:2 1 160px}
+.sales-ed .sbundle{border:1px solid var(--border);border-left:4px solid var(--accent,#3a7);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}.sales-ed .sbundle>.srow{width:100%}
+.sales-ed .bitems{display:flex;flex-direction:column;gap:4px;width:100%;padding-left:24px;box-sizing:border-box}.sales-ed .bitem{display:flex;gap:4px;align-items:center}.sales-ed .bitem .num{min-width:2em;text-align:right;color:var(--text-muted);font-weight:700}.sales-ed .bitem .in{flex:1;margin:0}
+.sales-ed .stext{border:1px dashed #d9a400;border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}.sales-ed .stext .srow{width:100%}.sales-ed .stext textarea{flex:1}
+.salesv .si,.salesv .st{white-space:pre-wrap}.salesv .sb{margin:2px 0}.salesv .sbh{display:flex;gap:4px;align-items:center}.salesv ol{margin:2px 0 4px;padding-left:2.6em}.tag.sm{font-size:11px;padding:1px 6px}
 .sales-ed .srow .in{margin:0}
 .sales-ed .dia{font-size:16px}.sales-ed .br{color:var(--text-muted);font-weight:700}
 .sales-pv{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px;font-size:13px;margin:4px 0 0;font-family:inherit}
 .ovcard{margin-top:16px}
 .ovtap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;text-align:center;padding:20px}
-@media (max-width:720px){#overview{height:420px}.sales-ed .srow{grid-template-columns:auto 1fr auto auto;}.sales-ed .srow .br{display:none}.sales-ed .srow input:nth-of-type(2){grid-column:1/-1}}
+@media (max-width:720px){#overview{height:420px}}
 @media (max-width:720px){#overview:has(.ovtap){height:220px}}
 /* ---- 載入骨架（p4 速度） ---- */
 .skel{display:flex;flex-direction:column;gap:14px}.skel.two{display:grid;grid-template-columns:1fr 1fr}

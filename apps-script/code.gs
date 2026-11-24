@@ -22,12 +22,13 @@
  *   只在網站上審核的站長不要給試算表編輯權；試算表建議只分享給擁有者本人。
  *
  * 部署：部署 › 新增部署 › 類型「網頁應用程式」；執行身分「我」；存取權「所有人」。
- * 版本：2026-11-24 phase5（認領驗證方式：SNS 貼文／私訊粉專或 LINE／Discord；不新增欄位，寫在「認領申請」的「驗證方式」欄）。
+ * 版本：2026-11-24 phase6（販售資訊可加「套組」：💠套組名稱＋1. 2. 編號商品）。
+ * 前一版：2026-11-24 phase5（認領驗證方式：SNS 貼文／私訊粉專或 LINE／Discord；不新增欄位，寫在「認領申請」的「驗證方式」欄）。
  * 前一版：2026-11-23 phase4（安全性修正：欄位名稱、網址解析、併入驗證、認領貼文、匯入公式、登入預檢、Drive 範圍、擁有者判斷、公開欄位白名單）
  */
 
 /* ============================== 常數 ============================== */
-var VERSION = '2026-11-24-p5';
+var VERSION = '2026-11-24-p6';
 var SH = {
   DB: '新攤位資料庫',
   LOG: '場次出展紀錄',
@@ -321,16 +322,31 @@ function validateField_(field, value, oldValue) {
   if (field === '攤位名稱' && v !== str_(oldValue).trim()) { out.sensitive = true; if (out.notes.indexOf('身分欄位：需二次驗證') < 0) out.notes.push('身分欄位：需二次驗證'); }
   out.value = v; return out;
 }
-/** 販售資訊格式：每行一項「💠類別【內容】」。前後空白、全形空白自動整理；不符合的行回傳錯誤（指出第幾行）。 */
+/** 販售資訊格式（p6 起可混用單品與套組）：
+ *   單品：「💠類別【內容】」一行一項（p5 規則不變）。
+ *   套組：「💠套組名稱」（不含【】）後面接 1 個以上「1. 商品名」「2. 商品名」…（從 1 開始連號）。
+ * 前後空白、全形空白自動整理；編號統一寫成「N. 」。不符合的行回傳錯誤（指出第幾行）。其他自由文字一律不接受。 */
 var SALES_LINE = /^💠\s*([^【】\n]*?)\s*【\s*([^【】\n]*?)\s*】$/;
+var SALES_BUNDLE = /^💠\s*([^【】\n]+?)$/, SALES_ITEM = /^(\d{1,2})\s*[.．、)）]\s*(.+)$/;
 function salesFormat_(v) {
   var lines = str_(v).replace(/\r/g, '').split('\n').map(function (x) { return x.replace(/\u3000/g, ' ').trim(); }).filter(Boolean), out = [];
-  if (lines.length > 40) return { ok: false, error: '販售資訊最多 40 行' };
+  if (lines.length > 80) return { ok: false, error: '販售資訊最多 80 行' };
+  var bundle = null, bad = function (i, why) { return { ok: false, error: '販售資訊第 ' + (i + 1) + ' 行' + why }; };
+  var FMT = '，請用「💠類別【內容】」（單品），或「💠套組名稱」加上「1. 商品名」「2. 商品名」（套組）';
   for (var i = 0; i < lines.length; i++) {
-    var m = lines[i].match(SALES_LINE);
-    if (!m || !m[1] || !m[2]) return { ok: false, error: '販售資訊第 ' + (i + 1) + ' 行格式不符，請用「💠類別【內容】」，例如：💠新刊【畫冊 Vol.2 NT$300】' };
-    out.push('💠' + m[1] + '【' + m[2] + '】');
+    var l = lines[i], m = l.match(SALES_LINE), it;
+    if (m) { if (bundle && !bundle.n) return bad(bundle.at, '：套組「' + bundle.name + '」至少要有 1 個商品'); if (!m[1] || !m[2]) return bad(i, '格式不符' + FMT); bundle = null; out.push('💠' + m[1] + '【' + m[2] + '】'); continue; }
+    if ((it = l.match(SALES_ITEM))) {
+      if (!bundle) return bad(i, '：編號商品必須放在「💠套組名稱」下面' + FMT);
+      if (+it[1] !== bundle.n + 1) return bad(i, '：套組「' + bundle.name + '」的編號要從 1 開始連號（這一行應該是 ' + (bundle.n + 1) + '.）');
+      if (/[【】]/.test(it[2])) return bad(i, '：套組商品名不能有【】');
+      if (++bundle.n > 30) return bad(i, '：一個套組最多 30 個商品');
+      out.push(bundle.n + '. ' + it[2].trim()); continue;
+    }
+    if ((m = l.match(SALES_BUNDLE))) { if (bundle && !bundle.n) return bad(bundle.at, '：套組「' + bundle.name + '」至少要有 1 個商品'); bundle = { name: m[1].trim(), n: 0, at: i }; out.push('💠' + bundle.name); continue; }
+    return bad(i, '格式不符' + FMT + '，例如：💠新刊【畫冊 Vol.2 NT$300】');
   }
+  if (bundle && !bundle.n) return bad(bundle.at, '：套組「' + bundle.name + '」至少要有 1 個商品');
   return { ok: true, value: out.join('\n') };
 }
 /** Google Safe Browsing v4（若有設定金鑰）。回傳 {checked, bad[]}。 */
@@ -1404,7 +1420,7 @@ function selfTest_() {
   [SH.ALOG, SH.REL, SH.MAP].forEach(function (n) { t('站長分頁：' + n + (ss_().getSheetByName(n) ? '' : '（尚未建立：請執行「🧱 初始化站長功能」）'), !!ss_().getSheetByName(n)); });
   t('站長人數：' + admins_().length + (admins_().length >= 2 ? '（身分欄位需第二位站長確認）' : ''), admins_().length > 0);
   t('twitter.com 與 x.com 視為同一帳號', snsKey_('https://twitter.com/Abc') === snsKey_('https://x.com/abc'));
-  t('販售資訊格式檢查', salesFormat_('💠新刊【畫冊】').ok && !salesFormat_('新刊 畫冊').ok);
+  t('販售資訊格式檢查（單品＋套組）', salesFormat_('💠新刊【畫冊】').ok && !salesFormat_('新刊 畫冊').ok && salesFormat_('💠套組1\n1. 商品A\n2. 商品B\n💠單品【x】').ok && !salesFormat_('💠套組1').ok);
   t('縮網址被拒', !validateField_('IG', 'https://bit.ly/abc', '').ok); t('javascript: 被拒', !validateField_('官方網站', 'javascript:alert(1)', '').ok);
   t('IG 欄位只收 instagram', !validateField_('IG', 'https://evil.example/x', '').ok); t('追蹤參數移除', validateField_('IG', 'https://www.instagram.com/abc/?igsh=xyz', '').value === 'https://www.instagram.com/abc/');
   t('取代身分欄位＝敏感', !!validateField_('TWITTER (1)', 'https://x.com/b', 'https://x.com/a').sensitive); t('公式注入防護', safeCell_('=IMPORTXML("x")').charAt(0) === "'");

@@ -42,4 +42,39 @@ ok('同一容器重畫會先銷毀舊圖', destroyed === 1 && created.length ===
 M.destroyNets(); ok('換頁時銷毀所有圖', destroyed === 2 && M.live() === 0);
 boom = true; const e2 = el(); m = M.mountNet(e2, nodes, edges, {});
 ok('vis 建圖失敗時不丟錯，只在圖的位置顯示訊息', m === null && e2.kids.length === 1 && e2.kids[0].text === 'graph_fail');
+// 3. 販售資訊（p6 套組）：解析／組回不丟字，組回的文字一定通過後端 salesFormat_
+const gs = fs.readFileSync(path.join(__dirname, '../apps-script/code.gs'), 'utf8');
+const salesVars = src.match(/  var SALES_RE = [^\n]*\n/)[0];
+const S6 = new Function(salesVars + grab('parseSales') + grab('serSales') + 'return { parseSales: parseSales, serSales: serSales };')();
+const gsVars = gs.match(/var SALES_LINE[^\n]*\n[^\n]*\n/)[0], gsFn = gs.match(/function salesFormat_\(v\) \{[\s\S]*?\n\}\n/)[0];
+const backend = new Function('function str_(v) { return v == null ? "" : String(v); }\n' + gsVars + gsFn + 'return salesFormat_;')();
+const EX = '💠套組1\n1. 商品名1-1\n2. 商品名1-2\n💠套組2\n1. 商品名2-1\n2. 商品名2-2\n💠單品1【A】\n💠單品2【B】';
+let B = S6.parseSales(EX, '商品');
+ok('[p6] 使用者範例：解析成 2 個套組＋2 個單品', B.map(x => x.k).join(',') === 'bundle,bundle,item,item' && B[0].name === '套組1' && B[0].items.join('|') === '商品名1-1|商品名1-2');
+ok('[p6] 使用者範例：組回與原文完全相同', S6.serSales(B) === EX, JSON.stringify(S6.serSales(B)));
+ok('[p6] 使用者範例：後端格式檢查通過且不改字', backend(EX).ok && backend(EX).value === EX);
+const editorOut = S6.serSales([{ k: 'item', cat: '新刊', con: '畫冊 NT$300' }, { k: 'bundle', name: '新刊套組', items: ['畫冊', '', '壓克力立牌'] }, { k: 'bundle', name: '', items: [''] }, { k: 'item', cat: '', con: '' }]);
+ok('[p6] 編輯器輸出：空的商品／空套組／空單品略過，編號自動重排', editorOut === '💠新刊【畫冊 NT$300】\n💠新刊套組\n1. 畫冊\n2. 壓克力立牌', JSON.stringify(editorOut));
+ok('[p6] 編輯器輸出通過後端', backend(editorOut).ok);
+B = S6.parseSales('💠舊寫法 NT$100\n隨便的備註\n※ 售完為止\n💠套組A\n1. a\n1. b', '商品');
+ok('[p6] 舊資料：沒有【】的 💠 行轉成單品（類別預設）並標示', B.legacy && B[0].k === 'item' && B[0].cat === '商品' && B[0].con === '舊寫法 NT$100');
+ok('[p6] 看不懂的行原樣保留成「其他文字」（不丟字）', B[1].k === 'text' && B[1].text === '隨便的備註\n※ 售完為止');
+ok('[p6] 編號重新從 1 開始：第二個 1. 不併進套組，原樣保留', B[2].k === 'bundle' && B[2].items.join() === 'a' && B[3].k === 'text' && B[3].text === '1. b');
+ok('[p6] 有「其他文字」時後端會擋下（不會默默寫入）', !backend(S6.serSales(B)).ok);
+B = S6.parseSales('  💠　套組X \n 1)  甲 \n2． 乙\n3、丙', '商品');
+ok('[p6] 各種編號寫法與全形空白都能讀成套組', B.length === 1 && B[0].k === 'bundle' && B[0].name === '套組X' && B[0].items.join('|') === '甲|乙|丙', JSON.stringify(B));
+ok('[p6] 組回後為標準格式', S6.serSales(B) === '💠套組X\n1. 甲\n2. 乙\n3. 丙');
+// 真實資料：不丟任何字（每個非空字元都還在）
+const fx = path.join(__dirname, '../../test-fixtures/fixture_ffk19.json');
+if (fs.existsSync(fx)) {
+  const F = JSON.parse(fs.readFileSync(fx, 'utf8')), cells = [];
+  (function walk(o) { if (Array.isArray(o)) { const i = o.indexOf('販售資訊'); if (i >= 0 && typeof o[i] === 'string' && o.length > 3) walk.col = i; o.forEach(walk); } else if (o && typeof o === 'object') Object.keys(o).forEach(k => { if (k === '販售資訊' && typeof o[k] === 'string') cells.push(o[k]); walk(o[k]); }); })(F);
+  const rowsArr = []; (function walk2(o) { if (Array.isArray(o) && o.length && Array.isArray(o[0]) && o[0].indexOf('販售資訊') >= 0) { const c = o[0].indexOf('販售資訊'); o.slice(1).forEach(r => { if (r[c]) rowsArr.push(String(r[c])); }); } else if (o && typeof o === 'object') Object.values(o).forEach(walk2); })(F);
+  const all = cells.concat(rowsArr).filter(Boolean);
+  const norm = x => x.replace(/[\s【】💠]|^\d+[.．、)）]/gm, '').replace(/\d+[.．、)）]/g, '');
+  const lost = all.filter(c => { const out = S6.serSales(S6.parseSales(c, '')); return norm(out) !== norm(c); });
+  ok('[p6] 真實 FFK19 販售資訊 ' + all.length + ' 格：解析＋組回都不丟字', all.length > 0 && lost.length === 0, lost.slice(0, 2).map(x => JSON.stringify(x)).join(' / '));
+  const passAgain = all.map(c => S6.serSales(S6.parseSales(c, '商品'))).filter(o => !/^(?!💠|\d)/m.test(o));
+  ok('[p6] 沒有其他文字的格子，組回後都通過後端', passAgain.every(o => backend(o).ok), passAgain.filter(o => !backend(o).ok).slice(0, 2).join(' / '));
+}
 console.log('\n' + pass + ' passed, ' + fail + ' failed'); process.exit(fail ? 1 : 0);

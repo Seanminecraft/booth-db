@@ -8,7 +8,7 @@ window.HELP = {
       { id: 'contact', t: '送出後：聯繫加帕利主編', img: 'zh-claim-done', s: ['送出後畫面會顯示「已送出申請」和你的驗證碼。', '⚠ 特別提醒：按下申請後請盡速與加帕利主編聯繫，我們會盡快幫您進行查驗。', '用你選的方式（粉專、LINE 或 Discord）把驗證碼傳給我們。', '站長確認後，攤位就會出現在「我的攤位」。'] },
       { id: 'edit', t: '修改我的攤位資料', img: 'zh-edit', s: ['到「我的攤位」，在你的攤位按「修改主資料」。', '只改你要改的格子。', '按「預覽變更」看一遍，再按「確認送出」。', '一般欄位可能馬上生效；換掉 SNS 主帳號、攤位名稱等身分資料，要等站長確認。'] },
       { id: 'thumb', t: '放攤位縮圖（Google 雲端連結）', img: 'zh-thumb', s: ['把圖片上傳到 Google 雲端硬碟。', '在圖片上按「共用」，把一般存取權改成「知道連結的任何人」。', '複製連結，貼到「縮圖」格。', '按「檢查是否公開」。看到 ✅ 才代表別人看得到。'] },
-      { id: 'sales', t: '填寫販售資訊', img: 'zh-sales', s: ['到「整理中場次」，找到你的攤位按「填寫我的攤位」。', '販售資訊一列寫一項：左邊填類別，右邊填內容。', '系統會自動寫成「💠類別【內容】」，例如「💠新刊【畫冊 Vol.2 NT$300】」。', '按「新增一項」可以再加一列，最後按送出。'] },
+      { id: 'sales', t: '填寫販售資訊', img: 'zh-sales', s: ['到「整理中場次」，找到你的攤位按「填寫我的攤位」。', '單品按「＋單品」：左邊填類別，右邊填內容。', '系統會自動寫成「💠類別【內容】」，例如「💠新刊【畫冊 Vol.2 NT$300】」。', '有套組時按「＋套組」：填套組名稱，再逐一加商品，系統自動編號成「💠套組名稱」「1. 商品名」「2. 商品名」。', '用「↑」「↓」調整順序、「×」刪除，確認下面的文字後按送出。'] },
       { id: 'status', t: '查看審核狀態', img: 'zh-status', s: ['打開「我的攤位」。', '「待審核的認領」：還在等站長確認。點它可以再看一次驗證碼。', '「我管理的攤主」：已經通過，可以修改資料。', '送出修改後，畫面會告訴你幾項已生效、幾項在等審核。通過後攤主頁就會更新。'] }
     ],
     faq: [
@@ -28,7 +28,7 @@ window.HELP = {
       { id: 'contact', t: 'After you submit: contact the Japari editor', img: 'en-claim-done', s: ['The screen shows "Request sent" and your code.', '⚠ Important: please contact the 加帕利 (Japari) editor as soon as possible so we can verify you quickly.', 'Send us the code using the method you picked (Facebook, LINE or Discord).', 'Once an admin approves, the booth appears under "My booth".'] },
       { id: 'edit', t: 'Edit my booth info', img: 'en-edit', s: ['Go to "My booth" and tap "Edit master data" on your booth.', 'Change only the boxes you need.', 'Tap "Preview changes", check it, then tap "Confirm & submit".', 'Normal fields may update right away. Changing your main SNS account or booth name waits for an admin.'] },
       { id: 'thumb', t: 'Add a booth thumbnail (Google Drive link)', img: 'en-thumb', s: ['Upload the image to Google Drive.', 'Tap "Share" on the image and set General access to "Anyone with the link".', 'Copy the link and paste it into the "Thumbnail" box.', 'Tap "Check if public". Only ✅ means others can see it.'] },
-      { id: 'sales', t: 'Fill in sales info', img: 'en-sales', s: ['Go to "Ongoing events", find your booth and tap "Fill in my booth".', 'Sales info is one item per row: category on the left, details on the right.', 'It is saved as "💠Category【Details】", e.g. "💠新刊【Art book Vol.2 NT$300】".', 'Tap "Add item" for another row, then submit.'] },
+      { id: 'sales', t: 'Fill in sales info', img: 'en-sales', s: ['Go to "Ongoing events", find your booth and tap "Fill in my booth".', 'Single item: tap "＋ Single item", category on the left, details on the right.', 'It is saved as "💠Category【Details】", e.g. "💠新刊【Art book Vol.2 NT$300】".', 'For a set, tap "＋ Bundle": enter the bundle name, then add items; they are numbered automatically ("💠Bundle name", "1. Item", "2. Item").', 'Use ↑ ↓ to reorder and × to delete, check the text below, then submit.'] },
       { id: 'status', t: 'Check review status', img: 'en-status', s: ['Open "My booth".', '"Pending claims": still waiting for an admin. Tap it to see your code again.', '"Owners I manage": approved — you can edit.', 'After you submit edits, the page tells you how many went live and how many wait for review. The owner page updates once approved.'] }
     ],
     faq: [
@@ -48,7 +48,7 @@ window.HELP = {
       { id: 'contact', t: '送信後：加帕利の編集担当に連絡', img: 'ja-claim-done', s: ['画面に「申請しました」と確認コードが表示されます。', '⚠ 申請後は、できるだけ早く加帕利（ジャパリ）の編集担当にご連絡ください。すぐに確認いたします。', '選んだ方法（Facebook・LINE・Discord）でコードを送ってください。', '管理者が承認すると、「マイブース」にブースが表示されます。'] },
       { id: 'edit', t: 'ブース情報を修正する', img: 'ja-edit', s: ['「マイブース」で自分のブースの「マスターデータの編集」を押します。', '変えたい欄だけ書き換えます。', '「変更をプレビュー」で確認し、「確認して送信」を押します。', '一般の欄はすぐ反映されることがあります。メインの SNS アカウントやサークル名の変更は管理者の確認待ちになります。'] },
       { id: 'thumb', t: 'サムネイルを登録する（Google ドライブのリンク）', img: 'ja-thumb', s: ['画像を Google ドライブにアップロードします。', '画像の「共有」で一般的なアクセスを「リンクを知っている全員」にします。', 'リンクをコピーして「サムネイル」欄に貼ります。', '「公開状態を確認」を押します。✅ が出れば他の人にも見えます。'] },
-      { id: 'sales', t: '頒布情報を入力する', img: 'ja-sales', s: ['「整理中のイベント」で自分のブースの「自分のブースを入力」を押します。', '頒布情報は 1 行に 1 つ：左にカテゴリ、右に内容を書きます。', '「💠カテゴリ【内容】」の形で保存されます。例：「💠新刊【画集 Vol.2 NT$300】」。', '「項目を追加」で行を増やし、最後に送信します。'] },
+      { id: 'sales', t: '頒布情報を入力する', img: 'ja-sales', s: ['「整理中のイベント」で自分のブースの「自分のブースを入力」を押します。', '単品は「＋ 単品」：左にカテゴリ、右に内容を書きます。', '「💠カテゴリ【内容】」の形で保存されます。例：「💠新刊【画集 Vol.2 NT$300】」。', 'セットは「＋ セット」：セット名を入れて商品を追加すると、自動で番号が付きます（「💠セット名」「1. 商品名」「2. 商品名」）。', '↑ ↓ で並べ替え、× で削除。下の文字を確認して送信します。'] },
       { id: 'status', t: '審査の状況を見る', img: 'ja-status', s: ['「マイブース」を開きます。', '「審査中の申請」：管理者の確認待ちです。押すとコードをもう一度見られます。', '「管理している出展者」：承認済みで、修正できます。', '修正を送ると、すぐ反映された数と審査待ちの数が表示されます。承認後に出展者ページが更新されます。'] }
     ],
     faq: [
@@ -65,7 +65,7 @@ window.ADMIN_HELP = {
   title: '站長使用說明', intro: '每件事只要幾步。不確定時，先不要按，問擁有者站長。',
   tasks: [
     { id: 'pair', t: '新增站長（配對碼）', img: 'admin-pair', s: ['新站長在網站登入，到「我的攤位」按「取得站長配對碼」。', '把配對碼給試算表擁有者（10 分鐘內有效）。', '擁有者在試算表選單「🗂 攤位資料庫網站 › 👑 新增站長帳號」輸入配對碼。', '新站長重新整理網頁，就會看到「站長後台」。'] },
-    { id: 'queue', t: '審核待審核', img: 'admin-queue', s: ['打開「📥 待審核」。', '看每筆的舊值、新值和風險說明；連結先看預覽再點。', '認領會標示驗證方式：🔗 SNS 貼文（打開貼文確認驗證碼）、💬 私訊粉專／LINE、🎮 Discord（到對應的訊息或頻道核對驗證碼）。', '沒問題按「✅ 核准」，有問題按「✖ 拒絕」並寫原因。', '可以勾選多筆一起處理（需 10 分鐘內登入）。'] },
+    { id: 'queue', t: '審核待審核', img: 'admin-queue', s: ['打開「📥 待審核」。', '看每筆的舊值、新值和風險說明；連結先看預覽再點。', '販售資訊可能有套組（💠套組名稱，下面 1. 2. 編號商品），格式不對系統會先擋下。', '認領會標示驗證方式：🔗 SNS 貼文（打開貼文確認驗證碼）、💬 私訊粉專／LINE、🎮 Discord（到對應的訊息或頻道核對驗證碼）。', '沒問題按「✅ 核准」，有問題按「✖ 拒絕」並寫原因。', '可以勾選多筆一起處理（需 10 分鐘內登入）。'] },
     { id: 'second', t: '第二位站長確認', img: 'admin-second', s: ['身分欄位（攤位名稱、SNS／網址欄位被換掉或清空）要兩位不同站長核准。', '第一位按「🔐 二次驗證（一審）」並寫確認方式，狀態變「待第二位確認」。', '另一位站長在待審核最上面按「🔐 第二位確認並套用」。', '只有 1 位站長時，擁有者站長要填理由才能覆核。'] },
     { id: 'relogin', t: '重新登入', img: 'admin-relogin', s: ['重要操作（批次核准、身分欄位、合併、匯入、停權）要在 10 分鐘內登入過。', '跳出 Google 登入視窗時，選你的站長帳號。', '登入完成後，剛剛的操作會自動再做一次。'] },
     { id: 'revert', t: '復原修改', img: 'admin-revert', s: ['打開「🧾 稽核紀錄」。', '找到要撤回的那筆，按「↩️ 復原」（一整批的話按「↩️ 整批復原」）。', '系統會把格子改回舊值，並留下紀錄。'] },
