@@ -139,3 +139,12 @@ nav.side{display:block;margin-left:0;align-self:start;position:sticky;top:80px}
 .help .hshot{width:100%;border-radius:10px;border:1px solid var(--border);display:block}
 .help details.faq{border-top:1px solid var(--border);padding:10px 0}.help details.faq summary{cursor:pointer;font-weight:600}.help details.faq p{margin:8px 0 0}
 @media (max-width:720px){.help .hgrid{grid-template-columns:1fr}}
+/* ---- 認領驗證方式（p5） ---- */
+.cmethods{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.cmethods label.cm{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;font-weight:600}
+.cmethods label.cm.on{border-color:var(--accent);background:var(--bg-card-hover)}
+.cmethods label.cm input{accent-color:var(--accent)}
+.cdetail{padding:4px 2px}.cdetail ol.steps{margin:6px 0 8px;padding-left:1.4em;line-height:1.7}
+.claimcode{margin:8px 0}.claimcode .code{font-size:20px}
+.btn.sm{padding:6px 12px;font-size:13px}
+.claimremind{font-weight:700;font-size:15px}

@@ -533,5 +533,66 @@ ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@examp
   const s14 = A({ action: 'admin.summary', session: AD1.session });
   ok('[營運] 後台 summary 回傳試算表編輯者人數（設定頁警告用）', s14.ok && typeof s14.data.sheetEditors === 'number');
 }
+// ===== 15. 認領驗證方式（p5）：SNS 貼文／私訊粉專或 LINE／Discord =====
+{
+  const A = b => post(b), login = sub => post({ action: 'login', idToken: 'fake:' + sub });
+  const dbS = sheet(DB_ID, '新攤位資料庫'), H = dbS.data[0], idc = H.indexOf('攤主ID'), twc = H.indexOf('TWITTER (1)');
+  const taken = new Set(claims().map(r => r[2])), free = dbS.data.slice(1).filter(r => /^C\d{5,}$/.test(r[idc]) && !taken.has(r[idc]) && !G.ownerSuspended_(r[idc]));
+  const pickFree = () => { const r = free.shift(); taken.add(r[idc]); return r; };
+  const nRows = () => claims().length, rowOf = (id, u) => claims().find(r => r[2] === id && r[4] === u);
+  // 預覽：只拿驗證碼，不寫入
+  const U1 = login('p5-dm'), u1 = G.readSession_(U1.session), o1 = pickFree()[idc], n0 = nRows();
+  const pv = A({ action: 'claim', session: U1.session, ownerId: o1, preview: true });
+  ok('[p5] 預覽只回傳驗證碼與「未送出」，不新增認領列', pv.ok && /^JP-[A-Z0-9]{6}$/.test(pv.data.code) && pv.data.status === '未送出' && nRows() === n0, JSON.stringify(pv.data));
+  for (let i = 0; i < 5; i++) A({ action: 'claim', session: U1.session, ownerId: o1, preview: true });
+  ok('[p5] 預覽不吃認領次數上限（3 次／日）', A({ action: 'claim', session: U1.session, ownerId: o1, preview: true }).ok);
+  // 私訊粉專／LINE：不需要網址，送了網址也不存
+  const d1 = A({ action: 'claim', session: U1.session, ownerId: o1, method: 'dm', proofUrl: 'https://x.com/evil/status/1234567890', note: '已私訊 LINE' });
+  const r1 = rowOf(o1, u1);
+  ok('[p5] 私訊粉專／LINE：不需貼文網址即可送出，驗證方式欄＝「私訊粉專／LINE」', d1.ok && d1.data.status === '待審核' && r1 && r1[5] === '私訊粉專／LINE' && r1[6] === '' && r1[7] === pv.data.code && r1[9] === '待審核', r1 && r1.slice(5, 10).join('|'));
+  ok('[p5] 驗證碼與預覽相同（同一人同一攤主固定）', d1.data.code === pv.data.code);
+  // Discord
+  const U2 = login('p5-discord'), u2 = G.readSession_(U2.session), o2 = pickFree()[idc];
+  const d2 = A({ action: 'claim', session: U2.session, ownerId: o2, method: 'discord' });
+  ok('[p5] Discord：不需網址，驗證方式欄＝「Discord」，狀態待審核', d2.ok && rowOf(o2, u2) && rowOf(o2, u2)[5] === 'Discord' && rowOf(o2, u2)[9] === '待審核');
+  // SNS：明確選 sns 時必須有貼文網址；個人頁仍拒絕
+  const U3 = login('p5-sns'), u3 = G.readSession_(U3.session), fr3 = free.find(r => /^https:\/\/x\.com\/[A-Za-z0-9_]+\/?$/.test(r[twc])); free.splice(free.indexOf(fr3), 1);
+  const o3 = fr3[idc], tw3 = fr3[twc].replace(/\/$/, '');
+  const s0 = A({ action: 'claim', session: U3.session, ownerId: o3, method: 'sns' });
+  ok('[p5] SNS 驗證沒有貼文網址 → 拒絕且不寫入', s0.ok === false && /貼文/.test(s0.error) && !rowOf(o3, u3), s0.error);
+  const s1 = A({ action: 'claim', session: U3.session, ownerId: o3, method: 'sns', proofUrl: tw3 });
+  ok('[p5] SNS 驗證：個人頁網址仍拒絕（p4 規則不變）', s1.ok === false && /一則貼文/.test(s1.error));
+  const s2 = A({ action: 'claim', session: U3.session, ownerId: o3, method: 'sns', proofUrl: tw3 + '/status/1860000000000000099' });
+  ok('[p5] SNS 驗證：貼文網址＋帳號相符 → 驗證方式「SNS 貼文」、標示帳號相符', s2.ok && rowOf(o3, u3)[5] === 'SNS 貼文' && /帳號相符，仍需確認貼文含驗證碼/.test(rowOf(o3, u3)[8]));
+  ok('[p5] 失敗的送出也算次數（防暴力嘗試）：第 4 次被擋', A({ action: 'claim', session: U3.session, ownerId: o3, method: 'discord' }).ok === false);
+  // 已有待審核申請 → 改方式只更新同一列（換一位申請者，避免次數上限）
+  const U3b = login('p5-switch'), fr3b = free.find(r => /^https:\/\/x\.com\/[A-Za-z0-9_]+\/?$/.test(r[twc])); free.splice(free.indexOf(fr3b), 1);
+  const o3b = fr3b[idc]; A({ action: 'claim', session: U3b.session, ownerId: o3b, method: 'sns', proofUrl: fr3b[twc].replace(/\/$/, '') + '/status/1860000000000000777' });
+  { const U3 = U3b, u3 = G.readSession_(U3b.session), o3 = o3b;
+  const before = nRows(), d3 = A({ action: 'claim', session: U3.session, ownerId: o3, method: 'discord' });
+  ok('[p5] 已在待審核時改用 Discord：更新同一列（不新增），貼文欄清空', d3.ok && d3.data.updated && nRows() === before && rowOf(o3, u3)[5] === 'Discord' && rowOf(o3, u3)[6] === '');
+  const pv3 = A({ action: 'claim', session: U3.session, ownerId: o3, preview: true });
+  ok('[p5] 預覽待審核申請時回傳目前方式', pv3.data.status === '待審核' && pv3.data.method === 'discord'); }
+  ok('[p5] 不明的驗證方式被拒絕', A({ action: 'claim', session: login('p5-bad').session, ownerId: pickFree()[idc], method: 'email' }).ok === false);
+  // 說明欄公式注入
+  const U5 = login('p5-formula'), o5 = pickFree()[idc]; A({ action: 'claim', session: U5.session, ownerId: o5, method: 'dm', note: '=HYPERLINK("https://evil.example","x")' });
+  ok('[p5] 說明欄經 safeCell_（公式變純文字）', /^'=/.test(rowOf(o5, G.readSession_(U5.session))[8]));
+  // 舊前端相容：沒帶 method、沒帶 preview → 跟 p4 一樣建立 SNS 貼文申請（貼文選填）；之後帶 method:'post' 會補上貼文
+  const U6 = login('p5-legacy'), u6 = G.readSession_(U6.session), fr6 = free.find(r => /^https:\/\/x\.com\/[A-Za-z0-9_]+\/?$/.test(r[twc])); free.splice(free.indexOf(fr6), 1);
+  const l1 = A({ action: 'claim', session: U6.session, ownerId: fr6[idc] });
+  ok('[p5] 舊前端：第一次（無 method）仍建立待審核申請並回傳驗證碼', l1.ok && l1.data.code && rowOf(fr6[idc], u6) && rowOf(fr6[idc], u6)[5] === 'SNS 貼文');
+  const l2 = A({ action: 'claim', session: U6.session, ownerId: fr6[idc], method: 'post', proofUrl: fr6[twc].replace(/\/$/, '') + '/status/1860000000000000123' });
+  ok('[p5] 舊前端：再送 method:post＋貼文網址會補進同一列（p4 以前會被忽略）', l2.ok && /status\/1860000000000000123/.test(rowOf(fr6[idc], u6)[6]) && claims().filter(r => r[4] === u6).length === 1);
+  // 送出次數上限仍在
+  const U7 = login('p5-rate'), o7 = pickFree()[idc]; let last;
+  for (let i = 0; i < 4; i++) last = A({ action: 'claim', session: U7.session, ownerId: o7, method: i % 2 ? 'dm' : 'discord' });
+  ok('[p5] 送出認領仍有 3 次／日上限', last.ok === false && /頻繁/.test(last.error), last.error);
+  // 站長佇列顯示方式；核准仍需人工
+  const AD = login('admin-one'), q = A({ action: 'admin.queue', session: AD.session });
+  const qd = q.ok && q.data.claims.find(c => c.ownerId === o2), qm = q.ok && q.data.claims.find(c => c.ownerId === o1);
+  ok('[p5] 站長佇列顯示驗證方式（Discord／私訊粉專／LINE）', qd && qd.method === 'Discord' && qm && qm.method === '私訊粉專／LINE', JSON.stringify(qd && { m: qd.method }));
+  ok('[p5] 送出後仍未核准：攤主不能修改（需站長核准）', A({ action: 'me', session: U2.session }).me.owned.indexOf(o2) < 0);
+  ok('[p5] 認領申請分頁欄位數不變（14 欄，沒有新增欄位）', claims().every(r => r.length <= 14) && sheet(DB_ID, '認領申請').data[0].length === 14);
+}
 ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

@@ -1,7 +1,7 @@
 // 隱私權政策（中／EN／日）— 單一來源：網站 #/privacy 與 docs/PRIVACY.md 都由這裡產生（node tools/build-privacy-md.js）。
 // 隱私權政策（已由站長審閱）。{CONTACT} 會換成 config 的聯絡方式。
 window.PRIVACY = {
-  updated: '2026-11-23',
+  updated: '2026-11-24',
   zh: {
     title: '隱私權政策',
     sections: [
@@ -9,7 +9,8 @@ window.PRIVACY = {
       ['2. 我們存什麼、不存什麼', [
         '登入時，Google 會把一個「ID token」交給我們的伺服器（Google Apps Script）。伺服器向 Google 確認真偽後，只取出其中的帳號編號（sub），用站方密鑰做 HMAC-SHA256 雜湊，產生一個無法還原的「申請者代號」（u_ 開頭）。token 本身用完即丟。',
         '我們不儲存：你的 email、姓名、大頭貼、Google 帳號編號原文、IP 位址、裝置資訊。',
-        '我們儲存（在站方的 Google 試算表中）：申請者代號；你送出的認領申請（攤主ID、驗證貼文網址、驗證碼、你寫的說明、時間、審核狀態）；你送出的修改申請（欄位、修改前後的值、風險檢查結果、時間、審核與套用紀錄）。',
+        '我們儲存（在站方的 Google 試算表中）：申請者代號；你送出的認領申請（攤主ID、驗證方式、驗證貼文網址〔只有 SNS 方式〕、驗證碼、你寫的說明、時間、審核狀態）；你送出的修改申請（欄位、修改前後的值、風險檢查結果、時間、審核與套用紀錄）。',
+        '如果你選擇用私訊（FB 粉專、LINE 官方帳號）或動漫同人展資訊組 Discord 驗證，訊息會留在該平台，依該平台的規則處理；我們只用來核對驗證碼，不會把訊息內容或你的平台帳號存進網站。',
         '攤位資料本身（攤名、筆名、SNS 連結、販售資訊、縮圖連結）是攤主在各場次公開發布的資訊，會公開顯示在本網站。'
       ]],
       ['3. 使用目的', ['確認修改是由同一位、已通過認領的攤主送出；防止冒用與惡意修改（審核、頻率限制、停權、復原）；在本網站顯示攤位資訊；把攤主填寫的內容寫入對應場次的攤位整理表。']],
@@ -43,7 +44,8 @@ window.PRIVACY = {
       ['2. What we store and what we do not', [
         'When you sign in, Google gives our server (Google Apps Script) an "ID token". The server verifies it with Google, takes only the account number inside it (sub) and turns it into an irreversible "applicant code" (starting with u_) using HMAC-SHA256 with a site secret. The token itself is discarded.',
         'We do NOT store your email, name, profile picture, raw Google account ID, IP address or device information.',
-        'We DO store, in the site\'s Google Sheet: the applicant code; claims you submit (owner ID, proof post URL, verification code, your note, time, review status); edit requests you submit (field, old and new value, risk check result, time, review and apply records).',
+        'We DO store, in the site\'s Google Sheet: the applicant code; claims you submit (owner ID, verification method, proof post URL [SNS method only], verification code, your note, time, review status); edit requests you submit (field, old and new value, risk check result, time, review and apply records).',
+        'If you verify by message (our Facebook page or LINE official account) or on the 動漫同人展資訊組 (Doujin Event Info) Discord, the message stays on that platform and follows its rules. We only use it to match your verification code and do not copy the message or your account on that platform into the site.',
         'Booth data itself (booth name, pen name, SNS links, sales info, thumbnail link) is information booth owners published for events, and is shown publicly on this site.'
       ]],
       ['3. Why', ['To confirm that edits come from the same, approved owner; to prevent impersonation and vandalism (review, rate limits, suspension, revert); to display booth information; and to write what owners fill in into the matching event booth sheet.']],
@@ -77,7 +79,8 @@ window.PRIVACY = {
       ['2. 保存する情報・保存しない情報', [
         'ログイン時、Google から当サイトのサーバー（Google Apps Script）に「ID トークン」が渡されます。サーバーは Google に真正性を確認したうえで、その中のアカウント番号（sub）のみを取り出し、サイトの秘密鍵による HMAC-SHA256 で元に戻せない「申請者コード」（u_ で始まる）に変換します。トークン自体は破棄します。',
         '保存しないもの：メールアドレス、氏名、プロフィール画像、Google アカウント ID の原文、IP アドレス、端末情報。',
-        '保存するもの（サイトの Google スプレッドシート）：申請者コード、出展者の申請（出展者ID、確認投稿の URL、確認コード、メモ、日時、審査状況）、修正申請（項目、変更前後の値、リスク判定、日時、審査・反映の記録）。',
+        '保存するもの（サイトの Google スプレッドシート）：申請者コード、出展者の申請（出展者ID、確認方法、確認投稿の URL〔SNS の場合のみ〕、確認コード、メモ、日時、審査状況）、修正申請（項目、変更前後の値、リスク判定、日時、審査・反映の記録）。',
+        'DM（Facebook ページ・LINE 公式アカウント）や動漫同人展資訊組（同人イベント情報グループ）の Discord で確認する場合、メッセージはそのサービス上に残り、そのサービスの規約に従って扱われます。私たちは確認コードの照合にだけ使い、メッセージの内容やそのサービスのアカウントをサイトに保存することはありません。',
         'ブース情報（サークル名、ペンネーム、SNS リンク、頒布情報、サムネイルのリンク）は出展者が各イベント向けに公開した情報であり、当サイトで公開表示します。'
       ]],
       ['3. 利用目的', ['修正が承認済みの同一出展者によるものか確認するため、なりすましや荒らしを防ぐため（審査、回数制限、停止、取り消し）、ブース情報を表示するため、出展者が入力した内容を該当イベントのスペース整理表へ書き込むため。']],

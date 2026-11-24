@@ -350,17 +350,51 @@
   }
   function needLogin() { if (S.session) return false; location.hash = '#/me'; toast(t('login')); return true; }
 
+  /* 認領驗證方式（p5）：① SNS 貼文 ② 私訊 FB 粉專／LINE 官方帳號 ③ 動漫同人展資訊組 Discord。三種都用同一個驗證碼，最後由站長人工核准。 */
+  var CLAIM_LINKS = { fb: 'https://www.facebook.com/JapariWeatherBureau/', line: 'https://lin.ee/qo1OC8v', discord: 'https://discord.gg/nFTsSR9HAf' };
+  var POST_RE = [/^https?:\/\/(www\.|mobile\.)?(x|twitter)\.com\/[A-Za-z0-9_]{1,20}\/status(es)?\/\d{5,}/i, /^https?:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\/?#]+\/(posts|videos|photos)\/[^\/?#]+/i, /^https?:\/\/(www\.|m\.|web\.)?facebook\.com\/(permalink|story)\.php\?(?=.*story_fbid=)/i, /^https?:\/\/(www\.)?instagram\.com\/(p|reel)\/[A-Za-z0-9_-]{5,}/i, /^https?:\/\/(www\.)?plurk\.com\/p\/[a-z0-9]{4,}/i, /^https?:\/\/bsky\.app\/profile\/[^\/]+\/post\/[a-z0-9]{5,}/i, /^https?:\/\/(www\.)?threads\.(net|com)\/@[^\/]+\/post\/[A-Za-z0-9_-]{5,}/i];
+  function isPostUrl(u) { return POST_RE.some(function (re) { return re.test(u); }); }
+  function backendAtLeast(v) { return !!(S.meta && S.meta.version && S.meta.version >= v); }
+  function extA(href, text, cls) { return h('a', { class: cls || 'btn ghost sm', href: href, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer', text: text }); }
+  function copyBtn(getText) { return h('button', { class: 'btn ghost sm copyb', type: 'button', onclick: function (e) { var b = e.currentTarget, v = getText(); var done = function () { b.textContent = t('copied'); setTimeout(function () { b.textContent = t('copy'); }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(v).then(done, function () { prompt(t('copy'), v); }); else { prompt(t('copy'), v); } }, text: t('copy') }); }
   function claimFlow(id, name) {
     if (needLogin()) return;
-    var proof = h('input', { class: 'in', placeholder: 'https://x.com/…/status/…' }), note = h('textarea', { class: 'in', maxlength: 300 }), method = h('select', { class: 'in' }, h('option', { value: 'post', text: t('claim_method_post') }), h('option', { value: 'dm', text: t('claim_method_dm') }));
-    var out = h('div');
-    var body = modal(t('claim_title') + '：' + name + '（' + id + '）', [h('p', { class: 'muted' }, t('claim_steps'), ' ', helpQ('claim')), out,
-      h('label', { class: 'fl', text: t('claim_proof') }), proof, h('label', { class: 'fl' }, ''), method, h('label', { class: 'fl', text: t('claim_note') }), note,
-      h('p', { class: 'acts' }, h('button', { class: 'btn ghost', onclick: closeModal, text: t('cancel') }), h('button', { class: 'btn', onclick: send, text: t('submit') }))]);
-    // 先送出一次空的認領取得驗證碼（重複送出不會產生新申請）
-    apiPost({ action: 'claim', ownerId: id }).then(function (j) { showCode(j.data); }).catch(function (e) { clear(out); add(out, h('div', { class: 'note bad', text: e.message })); });
-    function showCode(d) { clear(out); add(out, h('div', { class: 'note ' + (d.status === '已核准' ? 'good' : 'warn') }, d.code ? [t('claim_code') + '：', h('span', { class: 'code', text: d.code })] : d.status)); }
-    function send() { apiPost({ action: 'claim', ownerId: id, proofUrl: proof.value, note: note.value, method: method.value }).then(function (j) { showCode(j.data); toast(t('ok')); }).catch(function (e) { toast(e.message); }); }
+    var code = '', cur = 'sns', sent = false;
+    var proof = h('input', { class: 'in', placeholder: 'https://x.com/…/status/…', inputmode: 'url' }), note = h('textarea', { class: 'in', maxlength: 300 });
+    var codeBox = h('div', { class: 'claimcode' }), status = h('div'), opts = h('div', { class: 'cmethods' }), detail = h('div', { class: 'cdetail' }), after = h('div');
+    function codeView() { clear(codeBox); if (!code) return; add(codeBox, [h('div', { class: 'k', text: t('claim_code_send') }), h('div', { class: 'acts', style: 'justify-content:flex-start;gap:10px' }, h('span', { class: 'code', text: code }), copyBtn(function () { return code; }))]); }
+    function pick(m) { cur = m; opts.querySelectorAll('label.cm').forEach(function (l) { l.classList.toggle('on', l.getAttribute('data-m') === m); l.querySelector('input').checked = l.getAttribute('data-m') === m; }); clear(detail);
+      if (m === 'sns') add(detail, [h('p', { class: 'muted', text: t('cm_sns_d') }), h('label', { class: 'fl', text: t('claim_proof') }), proof]);
+      if (m === 'dm') add(detail, [h('p', { class: 'muted', text: t('cm_dm_d') }), h('div', { class: 'acts', style: 'justify-content:flex-start' }, extA(CLAIM_LINKS.fb, '📘 ' + t('cm_fb')), extA(CLAIM_LINKS.line, '💬 ' + t('cm_line')))]);
+      if (m === 'discord') add(detail, [h('ol', { class: 'steps' }, t('cm_dc_s').split('|').map(function (x) { return h('li', { text: x }); })), h('div', { class: 'acts', style: 'justify-content:flex-start' }, extA(CLAIM_LINKS.discord, '🎮 ' + t('cm_dc_join')))]);
+    }
+    [['sns', 'cm_sns'], ['dm', 'cm_dm'], ['discord', 'cm_dc']].forEach(function (x) { add(opts, h('label', { class: 'cm', 'data-m': x[0] }, h('input', { type: 'radio', name: 'cm', value: x[0], onchange: function () { pick(x[0]); } }), h('span', { text: t(x[1]) }))); });
+    var sendBtn = h('button', { class: 'btn', onclick: send, text: t('claim_send') });
+    var form = h('div', null, h('div', { class: 'k', style: 'margin-top:10px', text: t('cm_pick') }), opts, detail, h('label', { class: 'fl', text: t('claim_note') }), note,
+      h('p', { class: 'acts' }, h('button', { class: 'btn ghost', onclick: closeModal, text: t('cancel') }), sendBtn));
+    var body = modal(t('claim_title') + '：' + name + '（' + id + '）', [h('p', { class: 'muted' }, t('claim_steps'), ' ', helpQ('claim')), status, codeBox, form, after]);
+    pick('sns');
+    function done(d, m) { sent = true; clear(after); form.hidden = true; /* 送出後只留驗證碼、結果與提醒 */ var methodTxt = t({ sns: 'cm_sns', dm: 'cm_dm', discord: 'cm_dc' }[m] || 'cm_sns');
+      add(after, [h('div', { class: 'note good claimdone' }, h('b', { text: '✅ ' + t('claim_done') }), h('div', { class: 'muted', text: t('claim_cur') + methodTxt })),
+        h('div', { class: 'note warn claimremind', text: '⚠ ' + t('claim_remind') }),
+        !backendAtLeast('2026-11-24-p5') ? h('div', { class: 'note', text: t('claim_old_backend') }) : null,
+        h('div', { class: 'acts', style: 'justify-content:flex-start' }, m === 'discord' ? extA(CLAIM_LINKS.discord, '🎮 ' + t('cm_dc_join'), 'btn') : m === 'dm' ? [extA(CLAIM_LINKS.fb, '📘 ' + t('cm_fb'), 'btn'), extA(CLAIM_LINKS.line, '💬 ' + t('cm_line'), 'btn')] : null, h('button', { class: 'btn ghost', onclick: closeModal, text: t('ok') }))]);
+      after.scrollIntoView && after.scrollIntoView({ block: 'nearest' }); }
+    function show(d) { clear(status); if (d.status === '已核准') { add(status, h('div', { class: 'note good', text: d.status })); form.hidden = true; return; }
+      code = d.code || code; codeView(); if (d.status === '待審核') { if (d.method) pick(d.method); add(status, h('div', { class: 'note warn', text: t('me_pending') + (d.method ? '・' + t('claim_cur') + t({ sns: 'cm_sns', dm: 'cm_dm', discord: 'cm_dc' }[d.method]) : '') })); } }
+    // 先取得驗證碼（p5：preview 不寫入；p4 以前的後端會在這一步建立申請，之後的送出會被忽略，所以下方另有提示）
+    apiPost({ action: 'claim', ownerId: id, preview: true }).then(function (j) { show(j.data); }).catch(function (e) { clear(status); add(status, h('div', { class: 'note bad', text: e.message })); });
+    function send() {
+      var m = cur, u = proof.value.trim();
+      if (m === 'sns' && !isPostUrl(u)) { toast(t('claim_need_post')); proof.focus(); return; }
+      sendBtn.disabled = true;
+      (API_OK ? liveMeta().catch(function () { return null; }) : Promise.resolve(null)).then(function () {
+      var p5 = backendAtLeast('2026-11-24-p5'), methodForApi = p5 ? m : (m === 'sns' ? 'post' : 'dm'); // p4 後端只認得 post／dm
+      var nt = note.value; if (!p5 && m === 'discord') nt = '[Discord] ' + nt;
+      return apiPost({ action: 'claim', ownerId: id, method: methodForApi, proofUrl: m === 'sns' ? u : '', note: nt }).then(function (j) { if (j.data.code) { code = j.data.code; codeView(); } done(j.data, m); toast(t('ok')); }); })
+        .catch(function (e) { toast(e.message); }).then(function () { sendBtn.disabled = false; });
+    }
     return body;
   }
   function reportFlow(id) {

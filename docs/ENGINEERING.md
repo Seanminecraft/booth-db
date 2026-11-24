@@ -1,6 +1,6 @@
 # 攤位資料庫網站 — 工程文件
 
-版本 2026-11-23（phase 4，Apps Script `VERSION = '2026-11-23-p4'`）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
+版本 2026-11-24（phase 5，Apps Script `VERSION = '2026-11-24-p5'`）｜對象：接手維護的工程師｜語言：繁體中文（程式註解同）
 
 > 本文件說明架構、資料流程、資料收集、資料結構、API、登入、審核、安全、部署、設定與測試。
 > 隱私權政策見 `docs/PRIVACY.md`（已由站長審閱）。使用說明：網站 `#/help`（攤主，三語）、站長後台「📘 使用說明」（中文）。
@@ -51,7 +51,7 @@
 
 ### 2.2 攤主寫入（網站 → 試算表）
 1. Google 登入 → `login` 取得 session。
-2. 認領（`claim`）→ 認領申請新增一列「待審核」＋驗證碼 `JP-XXXXXX`。攤主用官方 SNS 發含驗證碼的貼文，貼上網址。
+2. 認領（`claim`）：先以 `preview:true` 取得驗證碼 `JP-XXXXXX`（不寫入）；攤主選一種驗證方式後送出 → 認領申請新增一列「待審核」。驗證方式（p5）：① `sns` SNS 貼文（必須貼「含驗證碼的那則貼文」網址）；② `dm` 私訊 FB 粉專 https://www.facebook.com/JapariWeatherBureau/ 或 LINE 官方帳號 https://lin.ee/qo1OC8v；③ `discord` 在動漫同人展資訊組 Discord https://discord.gg/nFTsSR9HAf 的「攤位整理系統後台 攤主權限申請」頻道貼驗證碼。②③ 不收網址。已有待審核申請時再送出＝更新同一列的驗證方式／貼文／說明。三種方式一律要站長人工核准。
 3. 站長在「認領申請」把狀態改「核准」→ 該帳號成為此攤主ID的管理者。
 4. 攤主修改主資料（`edit`）或填寫場次（`eventfill`）：
    - 網站先呼叫 `preview` 顯示差異、正規化後的網址、風險分數、會被拒絕的欄位（不寫入）。
@@ -109,7 +109,7 @@
 | N | 備註 | |
 
 ### 4.3 認領申請（sheetId 833105830）
-申請ID、申請時間、攤主ID、攤位名稱、申請者代號、驗證方式、驗證連結、驗證碼、說明、**狀態**（待審核／核准／拒絕／停權／撤銷，J 欄下拉）、審核時間、審核備註、角色、最後活動。
+申請ID、申請時間、攤主ID、攤位名稱、申請者代號、驗證方式（`SNS 貼文`／`私訊粉專／LINE`／`Discord`；舊資料可能是 `私訊官方粉專`）、驗證連結（只有 SNS 貼文有）、驗證碼、說明、**狀態**（待審核／核准／拒絕／停權／撤銷，J 欄下拉）、審核時間、審核備註、角色、最後活動。
 - 停權單一帳號：狀態改「停權」（或選單 ⛔ 輸入 `u_…`）。
 - 鎖定整個攤主（任何人都不能認領或修改）：選單 ⛔ 輸入 `C…`，會新增一列申請者代號為 `*`、狀態「停權」。恢復：輸入 `+C…`。
 
@@ -153,7 +153,7 @@
 |---|---|---|
 | `login` | `idToken` | 驗證 Google ID token → `session`（12h）、`me` |
 | `me` | | `{uid(前 8 碼), owned[], pending[], suspended, fillMode, active[]}` |
-| `claim` | `ownerId, proofUrl?, method(post|dm), note?` | 新增／查詢認領，回傳 `{status, code}` |
+| `claim` | `ownerId, preview?, method(sns|dm|discord；舊值 post＝sns), proofUrl（sns 必填）, note?` | `preview:true`：只回傳 `{status: 未送出|待審核|已核准, code, method?}`，不寫入；否則新增或更新待審核認領，回傳 `{status, code, method, updated?}`。沒帶 method 的舊前端呼叫維持 p4 行為（建立 SNS 貼文申請、貼文選填）。 |
 | `preview` | `changes{欄位:值}, old{欄位:值}` | 逐欄驗證結果 `{ok,value,risk,notes,block,sensitive}`，不寫入 |
 | `edit` | `ownerId, rowName, changes` | 主資料修改 → 修改申請 |
 | `eventfill` | `ownerId, event, booth, boothNo, changes` | 場次填寫（queue/live） |
@@ -162,7 +162,7 @@
 | `report` | `a, b, kind(merge|split), note` | 關聯錯誤回報 |
 | `withdraw` | | 清除本人所有申請者代號，回傳清除格數 |
 
-頻率限制（`LIMITS`，每帳號）：login 20/小時、claim 3/日、edit 20/日、eventfill 30/日、thumb 30/小時、report 10/日。超過時拒絕並通知站長。
+頻率限制（`LIMITS`，每帳號）：login 20/小時、claim 3/日（送出，失敗也算）、claimcode 60/日（preview）、edit 20/日、eventfill 30/日、thumb 30/小時、report 10/日。超過時拒絕並通知站長。
 
 ## 6. 登入（Google Identity Services）
 
@@ -343,3 +343,11 @@ PUPPETEER_PATH=…/puppeteer-core node tests/ui-regression-c02492.js   # 攤主�
 - 攤主頁：先用 index 顯示名稱＋骨架，詳細資料回來再補；滑過／按住攤主卡時預先抓取（2 分鐘快取，寫入後清除）。
 - 骨架畫面（`.sk`）取代空白轉圈；meta 與 index 平行請求。
 - 全部攤位列表本來就分頁。
+
+## 17. 認領驗證方式（phase 5，2026-11-24）
+
+- 前端 `claimFlow`（`site/assets/app.js`）：打開視窗即以 `preview` 取得驗證碼（含「複製」鈕）；三種方式以單選呈現，SNS 方式在前端先檢查是貼文網址才送出；送出後隱藏表單，只顯示結果、目前方式、特別提醒「按下申請後請盡速與加帕利主編聯繫，我們會盡快幫您進行查驗。」與對應連結。
+- 後端相容：前端讀 `meta.version`；後端仍是 p4 時，Discord 改送 `method:'dm'` 並在說明前加 `[Discord]`，並提示把驗證碼與方式寫在訊息裡（p4 會在取得驗證碼時就建立申請，之後的送出會被忽略）。
+- 站長佇列：驗證方式以 🔗／💬／🎮 標示；沒有貼文網址時顯示該到哪裡核對驗證碼。
+- 認領申請分頁沒有新增欄位；不需要重跑任何初始化。貼上 code.gs 並部署新版本即可。
+- p4 以前的小問題一併修正：取得驗證碼時已建立申請，之後送出的貼文網址不會被記錄；p5 會更新同一列。

@@ -2,7 +2,7 @@
 
 # 隱私權政策
 
-_最後更新: 2026-11-23_
+_最後更新: 2026-11-24_
 
 ## 1. 我們是誰、這份政策涵蓋什麼
 
@@ -14,7 +14,9 @@ _最後更新: 2026-11-23_
 
 我們不儲存：你的 email、姓名、大頭貼、Google 帳號編號原文、IP 位址、裝置資訊。
 
-我們儲存（在站方的 Google 試算表中）：申請者代號；你送出的認領申請（攤主ID、驗證貼文網址、驗證碼、你寫的說明、時間、審核狀態）；你送出的修改申請（欄位、修改前後的值、風險檢查結果、時間、審核與套用紀錄）。
+我們儲存（在站方的 Google 試算表中）：申請者代號；你送出的認領申請（攤主ID、驗證方式、驗證貼文網址〔只有 SNS 方式〕、驗證碼、你寫的說明、時間、審核狀態）；你送出的修改申請（欄位、修改前後的值、風險檢查結果、時間、審核與套用紀錄）。
+
+如果你選擇用私訊（FB 粉專、LINE 官方帳號）或動漫同人展資訊組 Discord 驗證，訊息會留在該平台，依該平台的規則處理；我們只用來核對驗證碼，不會把訊息內容或你的平台帳號存進網站。
 
 攤位資料本身（攤名、筆名、SNS 連結、販售資訊、縮圖連結）是攤主在各場次公開發布的資訊，會公開顯示在本網站。
 
@@ -68,7 +70,7 @@ GitHub Pages：託管本網站的靜態檔案。GitHub 可能依其隱私權聲�
 
 # Privacy Policy
 
-_Last updated: 2026-11-23_
+_Last updated: 2026-11-24_
 
 ## 1. Who we are and what this covers
 
@@ -80,7 +82,9 @@ When you sign in, Google gives our server (Google Apps Script) an "ID token". Th
 
 We do NOT store your email, name, profile picture, raw Google account ID, IP address or device information.
 
-We DO store, in the site's Google Sheet: the applicant code; claims you submit (owner ID, proof post URL, verification code, your note, time, review status); edit requests you submit (field, old and new value, risk check result, time, review and apply records).
+We DO store, in the site's Google Sheet: the applicant code; claims you submit (owner ID, verification method, proof post URL [SNS method only], verification code, your note, time, review status); edit requests you submit (field, old and new value, risk check result, time, review and apply records).
+
+If you verify by message (our Facebook page or LINE official account) or on the 動漫同人展資訊組 (Doujin Event Info) Discord, the message stays on that platform and follows its rules. We only use it to match your verification code and do not copy the message or your account on that platform into the site.
 
 Booth data itself (booth name, pen name, SNS links, sales info, thumbnail link) is information booth owners published for events, and is shown publicly on this site.
 
@@ -134,7 +138,7 @@ If this policy changes we update the "last updated" date on this page and announ
 
 # プライバシーポリシー
 
-_最終更新日: 2026-11-23_
+_最終更新日: 2026-11-24_
 
 ## 1. 運営者と対象範囲
 
@@ -146,7 +150,9 @@ _最終更新日: 2026-11-23_
 
 保存しないもの：メールアドレス、氏名、プロフィール画像、Google アカウント ID の原文、IP アドレス、端末情報。
 
-保存するもの（サイトの Google スプレッドシート）：申請者コード、出展者の申請（出展者ID、確認投稿の URL、確認コード、メモ、日時、審査状況）、修正申請（項目、変更前後の値、リスク判定、日時、審査・反映の記録）。
+保存するもの（サイトの Google スプレッドシート）：申請者コード、出展者の申請（出展者ID、確認方法、確認投稿の URL〔SNS の場合のみ〕、確認コード、メモ、日時、審査状況）、修正申請（項目、変更前後の値、リスク判定、日時、審査・反映の記録）。
+
+DM（Facebook ページ・LINE 公式アカウント）や動漫同人展資訊組（同人イベント情報グループ）の Discord で確認する場合、メッセージはそのサービス上に残り、そのサービスの規約に従って扱われます。私たちは確認コードの照合にだけ使い、メッセージの内容やそのサービスのアカウントをサイトに保存することはありません。
 
 ブース情報（サークル名、ペンネーム、SNS リンク、頒布情報、サムネイルのリンク）は出展者が各イベント向けに公開した情報であり、当サイトで公開表示します。
 

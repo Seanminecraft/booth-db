@@ -37,7 +37,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await p.waitForFunction(() => document.querySelector('.dhead'), { timeout: 15000 }).catch(() => {});
     ok(L + ' 攤主頁有「認領」按鈕', await click(p, /→/)); await p.waitForSelector('#modal:not([hidden]) .code', { timeout: 8000 }).catch(() => {});
     ok(L + ' 認領視窗顯示驗證碼與說明「?」', await p.evaluate(() => !!document.querySelector('#modal .code') && !!document.querySelector('#modal .helpq')));
-    await p.type('#modal input.in', 'https://x.com/ame_aoi/status/1860000000000000001'); await snap(p, L + '-claim', '#modal .mbox, #modal > div'); await p.close();
+    await p.evaluate(() => { const r = document.querySelector('#modal label.cm[data-m=discord] input'); r.click(); });
+    await sleep(300); ok(L + ' 認領視窗有三種驗證方式與複製鈕', await p.evaluate(() => document.querySelectorAll('#modal label.cm').length === 3 && !!document.querySelector('#modal .copyb')));
+    await snap(p, L + '-claim');
+    await p.evaluate(() => { const b = [...document.querySelectorAll('#mbody button.btn')].find(x => !/ghost/.test(x.className)); b.click(); });
+    await p.waitForSelector('#modal .claimremind', { timeout: 8000 }).catch(() => {});
+    ok(L + ' 送出後顯示特別提醒', await p.evaluate(() => !!document.querySelector('#modal .claimremind')));
+    await p.evaluate(() => document.querySelector('#modal .claimdone').scrollIntoView({ block: 'center' })); await sleep(300);
+    await snap(p, L + '-claim-done'); await p.close();
     p = await pg(`?theme=light&lang=${L}&devlogin=dev-owner-1#/me`, { wait: 1800 });
     await p.evaluate(() => { const b = [...document.querySelectorAll('#app button.btn')].find(x => !/ghost|warn/.test(x.className)); b && b.click(); });
     await p.waitForSelector('#modal:not([hidden]) .frow', { timeout: 10000 }).catch(() => {}); await sleep(500); await snap(p, L + '-edit'); await p.close();
@@ -51,7 +58,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     p = await pg(`?theme=light&lang=${L}&devlogin=claimer-a#/me`, { wait: 1800 }); await snap(p, L + '-status'); await p.close();
     p = await pg(`?theme=dark&lang=${L}#/help/claim`, { w: 1100, h: 900, wait: 1200 });
     const ht = await p.evaluate(() => ({ n: document.querySelectorAll('.htask').length, img: document.querySelectorAll('.hshot').length, faq: document.querySelectorAll('details.faq').length, nav: !!document.querySelector('#nav a[href="#/help"]') }));
-    ok(L + ' 使用說明頁：6 個任務、6 張截圖、常見問題、導覽列連結', ht.n === 6 && ht.img === 6 && ht.faq >= 4 && ht.nav, JSON.stringify(ht));
+    ok(L + ' 使用說明頁：7 個任務、7 張截圖、常見問題、導覽列連結', ht.n === 7 && ht.img === 7 && ht.faq >= 5 && ht.nav, JSON.stringify(ht));
     if (L === 'zh') await p.screenshot({ path: '/tmp/p4shots/help_zh_dark.png', fullPage: true }); await p.close();
   }
   // 2. 站長說明（中文）
@@ -78,6 +85,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const cl = await p.$eval('#app', e => e.textContent); ok('認領卡標示「帳號相符，仍需確認貼文含驗證碼」', /帳號相符，仍需確認貼文含驗證碼/.test(cl)); await p.close();
   // 圖片都在
   const imgs = await (await pg('?lang=zh#/help')).evaluate(async () => { const out = []; for (const i of document.querySelectorAll('.hshot')) { const r = await fetch(i.src); out.push(r.status); } return out; });
-  ok('攤主說明截圖都存在', imgs.every(s => s === 200), imgs.join(','));
+  ok('攤主說明截圖都存在（7 張）', imgs.length === 7 && imgs.every(s => s === 200), imgs.join(','));
   await b.close(); console.log(res.join('\n')); if (errs.length) console.log('PAGE ERRORS:\n' + errs.join('\n'));
 })().catch(e => { console.error(e); console.log(res.join('\n')); process.exit(1); });

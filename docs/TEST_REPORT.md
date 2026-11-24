@@ -1,5 +1,34 @@
 # 測試報告 — 2026-11-23（Asia/Taipei）
 
+## Phase 5（認領驗證方式：SNS 貼文／私訊粉專或 LINE／Discord）— 2026-11-24（Asia/Taipei）
+
+- `node tests/run-tests.js`：**230 passed, 0 failed**（新增 19 項 [p5]）：
+
+```
+PASS [p5] 預覽只回傳驗證碼與「未送出」，不新增認領列  — {"status":"未送出","code":"JP-3CSE6I"}
+PASS [p5] 預覽不吃認領次數上限（3 次／日）
+PASS [p5] 私訊粉專／LINE：不需貼文網址即可送出，驗證方式欄＝「私訊粉專／LINE」  — 私訊粉專／LINE||JP-3CSE6I|已私訊 LINE|待審核
+PASS [p5] 驗證碼與預覽相同（同一人同一攤主固定）
+PASS [p5] Discord：不需網址，驗證方式欄＝「Discord」，狀態待審核
+PASS [p5] SNS 驗證沒有貼文網址 → 拒絕且不寫入  — SNS 驗證需要貼上「含驗證碼的那則貼文」網址
+PASS [p5] SNS 驗證：個人頁網址仍拒絕（p4 規則不變）
+PASS [p5] SNS 驗證：貼文網址＋帳號相符 → 驗證方式「SNS 貼文」、標示帳號相符
+PASS [p5] 失敗的送出也算次數（防暴力嘗試）：第 4 次被擋
+PASS [p5] 已在待審核時改用 Discord：更新同一列（不新增），貼文欄清空
+PASS [p5] 預覽待審核申請時回傳目前方式
+PASS [p5] 不明的驗證方式被拒絕
+PASS [p5] 說明欄經 safeCell_（公式變純文字）
+PASS [p5] 舊前端：第一次（無 method）仍建立待審核申請並回傳驗證碼
+PASS [p5] 舊前端：再送 method:post＋貼文網址會補進同一列（p4 以前會被忽略）
+PASS [p5] 送出認領仍有 3 次／日上限  — 操作太頻繁，請稍後再試
+PASS [p5] 站長佇列顯示驗證方式（Discord／私訊粉專／LINE）  — {"m":"Discord"}
+PASS [p5] 送出後仍未核准：攤主不能修改（需站長核准）
+PASS [p5] 認領申請分頁欄位數不變（14 欄，沒有新增欄位）
+```
+
+- `node tests/run-frontend-tests.js`：14 passed。
+- 介面測試（每個腳本前重新啟動 dev-server）：`tests/ui-p5-claim.js`（新）16 PASS — 預覽不建立申請、複製鈕、SNS 前端擋非貼文網址、私訊連結與送出、Discord 五步驟（日文）、重新打開顯示目前方式、**後端仍是 p4 時**的相容送出與提示、站長佇列標示；`tests/ui-p4-help.js --shots` 30 PASS（使用說明 7 個任務，重新產生 27＋3 張截圖）；`ui-regression-graph-dup` 29、`ui-p3-admin` 14、`ui-p3-reauth` 6、`ui-regression-c02492` 6 PASS。
+
 ## Phase 4.1 修正：攤主頁「Cannot add item: item with id g:C00846 already exists」— 2026-11-24 00:00（Asia/Taipei）
 
 - 原因：`applyOverlay` 的 `has()` 用 `(x[0] || x)` 判斷是否已存在；關聯攤主是字串，`x[0]` 變成第一個字元「C」，永遠不相等 → 每組雙向關聯都被加兩次（正式資料 507 位有關聯的攤主中 194 位重複，例 C00846 → C00096 出現兩次）。攤主頁用 `g:<ID>` 當 vis 節點 id，重複就丟錯，錯誤一路傳到整頁的 `.catch(fail)`。只有在關聯資料套上覆蓋層（p4 起快照 `reloverlay.json` 一定存在）的有關聯攤主會發生。

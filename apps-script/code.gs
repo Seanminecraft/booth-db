@@ -22,11 +22,12 @@
  *   只在網站上審核的站長不要給試算表編輯權；試算表建議只分享給擁有者本人。
  *
  * 部署：部署 › 新增部署 › 類型「網頁應用程式」；執行身分「我」；存取權「所有人」。
- * 版本：2026-11-23 phase4（安全性修正：欄位名稱、網址解析、併入驗證、認領貼文、匯入公式、登入預檢、Drive 範圍、擁有者判斷、公開欄位白名單）
+ * 版本：2026-11-24 phase5（認領驗證方式：SNS 貼文／私訊粉專或 LINE／Discord；不新增欄位，寫在「認領申請」的「驗證方式」欄）。
+ * 前一版：2026-11-23 phase4（安全性修正：欄位名稱、網址解析、併入驗證、認領貼文、匯入公式、登入預檢、Drive 範圍、擁有者判斷、公開欄位白名單）
  */
 
 /* ============================== 常數 ============================== */
-var VERSION = '2026-11-23-p4';
+var VERSION = '2026-11-24-p5';
 var SH = {
   DB: '新攤位資料庫',
   LOG: '場次出展紀錄',
@@ -80,7 +81,7 @@ var KNOWN_DOMAINS = ['facebook.com', 'instagram.com', 'x.com', 'twitter.com', 'p
   'kadokado.com.tw', 'waterring.tw', 'cxc.today', 'nicovideo.jp', 'store.line.me', 'shop.line.me'];
 var SHORTENERS = ['bit.ly', 'tinyurl.com', 'reurl.cc', 't.co', 'goo.gl', 'is.gd', 'shorturl.at', 'lihi.cc', 'lihi1.com', 'lihi2.com',
   'pse.is', 'ppt.cc', 'rb.gy', 'cutt.ly', 'ow.ly', 'buff.ly', 'rebrand.ly', 'tiny.cc', 'shorturl.asia', 'l.facebook.com', 'l.instagram.com'];
-var LIMITS = { login: [20, 3600], claim: [3, 86400], edit: [20, 86400], eventfill: [30, 86400], thumb: [30, 3600], report: [10, 86400] };
+var LIMITS = { login: [20, 3600], claim: [3, 86400], claimcode: [60, 86400], edit: [20, 86400], eventfill: [30, 86400], thumb: [30, 3600], report: [10, 86400] };
 var CACHE_TTL = 21600; // 6 小時；任何經由 onEdit 的修改會換新版本號，網站立即讀到新資料
 var EVENT_CACHE_TTL = 300; // 場次整理表（在其他檔案）5 分鐘快取
 
@@ -445,7 +446,7 @@ function doPost(e) {
     if (a === 'withdraw') { lock.waitLock(20000); return json_({ ok: true, done: withdraw_(uid) }); }
     var me = claimsOf_(uid); if (me.suspended) throw new Error('此帳號已被停權，如有疑問請聯絡站長');
     lock.waitLock(20000);
-    if (a === 'claim') { rate_(uid, 'claim'); return json_({ ok: true, data: submitClaim_(uid, body) }); }
+    if (a === 'claim') { rate_(uid, body.preview ? 'claimcode' : 'claim'); return json_({ ok: true, data: submitClaim_(uid, body) }); }
     if (a === 'edit') { rate_(uid, 'edit'); return json_({ ok: true, data: submitEdit_(uid, me, body) }); }
     if (a === 'eventfill') { rate_(uid, 'eventfill'); return json_({ ok: true, data: submitEventFill_(uid, me, body) }); }
     if (a === 'report') { rate_(uid, 'report'); return json_({ ok: true, data: submitReport_(uid, body) }); }
@@ -456,18 +457,38 @@ function doPost(e) {
 }
 function meInfo_(uid) { var c = claimsOf_(uid), ad = adminOf_(uid); return { uid: uid.slice(0, 8) + '…', owned: c.owned, pending: c.pending, suspended: c.suspended, fillMode: fillMode_(), active: activeEvents_().map(publicEvent_), admin: !!ad && prop_('ADMIN_WEB_DISABLED', '') !== '1', adminRole: ad ? ad.role : '' }; }
 
+/** 認領驗證方式（p5）：sns＝SNS 貼文（必須是貼文網址）；dm＝私訊 FB 粉專或 LINE 官方帳號；discord＝在動漫同人展資訊組 Discord 申請。
+ * 三種方式都會產生同一個驗證碼，而且一律要站長人工核准。舊前端送的 post／空白視為 sns（空白時貼文網址選填，相容 p4 以前的流程）。 */
+var CLAIM_METHODS = { sns: 'SNS 貼文', dm: '私訊粉專／LINE', discord: 'Discord' };
+function claimMethodKey_(label) { label = str_(label); if (/discord/i.test(label)) return 'discord'; if (/私訊|LINE/i.test(label)) return 'dm'; return 'sns'; }
+/** 認領：b.preview＝只取得驗證碼與目前狀態（不寫入）；否則送出／更新申請。 */
 function submitClaim_(uid, b) {
   var id = str_(b.ownerId); if (!/^C\d{5,}$/.test(id)) throw new Error('攤主ID 格式錯誤');
-  var c = claimsOf_(uid); if (c.owned.indexOf(id) >= 0) return { status: '已核准' }; if (c.pending.indexOf(id) >= 0) return { status: '待審核', code: claimCode_(uid, id) };
+  var c = claimsOf_(uid); if (c.owned.indexOf(id) >= 0) return { status: '已核准' };
+  var code = claimCode_(uid, id), mine = function () { var rows = claimRows_(), at = -1; rows.forEach(function (r, i) { if (r[2] === id && r[4] === uid && r[9] === '待審核') at = i; }); return at < 0 ? null : { i: at, r: rows[at] }; };
+  if (b.preview) { var pr = c.pending.indexOf(id) >= 0 ? mine() : null; return pr ? { status: '待審核', code: code, method: claimMethodKey_(pr.r[5]), proof: pr.r[6] } : { status: c.pending.indexOf(id) >= 0 ? '待審核' : '未送出', code: code }; }
   if (ownerSuspended_(id)) throw new Error('此攤主目前鎖定中，請聯絡站長');
-  var proof = str_(b.proofUrl).trim(); if (proof) { var vf = validateField_('其他連結', proof, ''); if (!vf.ok) throw new Error('驗證連結：' + vf.block); proof = vf.value;
+  var raw = str_(b.method).trim().toLowerCase(), legacy = raw === '';
+  var mk = raw === 'post' || raw === 'sns' || legacy ? 'sns' : raw === 'dm' || raw === 'line' || raw === 'fb' ? 'dm' : raw === 'discord' ? 'discord' : '';
+  if (!mk) throw new Error('驗證方式只能是 SNS 貼文、私訊粉專／LINE 或 Discord');
+  var proof = mk === 'sns' ? str_(b.proofUrl).trim() : ''; // 私訊／Discord 不收網址
+  if (mk === 'sns' && !proof && !legacy) throw new Error('SNS 驗證需要貼上「含驗證碼的那則貼文」網址');
+  if (proof) { var vf = validateField_('其他連結', proof, ''); if (!vf.ok) throw new Error('驗證連結：' + vf.block); proof = vf.value;
     if (!isPostUrl_(proof)) throw new Error('驗證連結必須是「一則貼文」的網址（例如 https://x.com/帳號/status/數字），不能是個人頁'); }
   var detail = ownerDetail_(id), known = []; detail.dbRows.forEach(function (r) { Object.keys(r.fields).forEach(function (h) { splitUrls_(r.fields[h]).forEach(function (u) { known.push(snsKey_(u)); }); }); });
   var pk = proof ? snsKey_(proof) : '', match = !!pk && pk.indexOf('/') > 0 && known.some(function (k) { return k === pk; }); // 只比帳號（網域＋帳號），單純網域不算
   var name = detail.dbRows.length ? detail.dbRows[0].fields[DB_NAME_HEADER] : (detail.history.length ? detail.history[detail.history.length - 1].name : '');
-  var code = claimCode_(uid, id), method = b.method === 'dm' ? '私訊官方粉專' : 'SNS 貼文';
-  sheet_(SH.CLAIM).appendRow([newId_('CL'), now_(), id, safeCell_(name), uid, method, safeCell_(proof), code, safeCell_(str_(b.note).slice(0, 300)) + (match ? '｜帳號相符，仍需確認貼文含驗證碼' : (proof ? '｜⚠ 貼文帳號不在資料庫內' : '')), '待審核', '', '', 'owner', now_()]);
-  return { status: '待審核', code: code };
+  var note = safeCell_(str_(b.note).slice(0, 300)) + (match ? '｜帳號相符，仍需確認貼文含驗證碼' : (proof ? '｜⚠ 貼文帳號不在資料庫內' : ''));
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var ex = c.pending.indexOf(id) >= 0 ? mine() : null;
+    if (ex) { // 已有待審核申請：更新驗證方式／貼文／說明（不新增列，不改申請時間與狀態）
+      if (!legacy) sheet_(SH.CLAIM).getRange(ex.i + 2, 6, 1, 4).setValues([[CLAIM_METHODS[mk], safeCell_(proof), code, note]]);
+      return { status: '待審核', code: code, method: legacy ? claimMethodKey_(ex.r[5]) : mk, updated: !legacy };
+    }
+    sheet_(SH.CLAIM).appendRow([newId_('CL'), now_(), id, safeCell_(name), uid, CLAIM_METHODS[mk], safeCell_(proof), code, note, '待審核', '', '', 'owner', now_()]);
+  } finally { lock.releaseLock(); }
+  return { status: '待審核', code: code, method: mk };
 }
 /** 認領驗證只接受「單一貼文」網址（個人頁、首頁不算）。 */
 var POST_URL_RES = [
