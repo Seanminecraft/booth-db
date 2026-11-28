@@ -152,3 +152,12 @@ nav.side{display:block;margin-left:0;align-self:start;position:sticky;top:80px}
 .claimcode{margin:8px 0}.claimcode .code{font-size:20px}
 .btn.sm{padding:6px 12px;font-size:13px}
 .claimremind{font-weight:700;font-size:15px}
+
+/* p7 */
+.nbadge{display:inline-block;min-width:18px;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--hot);color:#fff;font-size:11.5px;font-weight:700;line-height:18px;text-align:center;vertical-align:1px}
+.nbadge.err{background:var(--warm);color:#1a1a1a}.nbadge[hidden]{display:none}
+.msel{display:flex;flex-wrap:wrap;gap:8px}.chip{min-height:40px;padding:6px 16px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);font-size:14px;font-family:inherit;cursor:pointer}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}[data-theme=light] .chip{background:rgba(20,40,80,.04)}[data-theme=light] .chip.on{background:var(--accent);color:#fff}
+.nvbox{margin:10px 0;padding:10px 12px;border:1px dashed var(--border);border-radius:10px}
+.admtool{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}.admtool .btn{min-height:40px}.admtool label{display:inline-flex;gap:6px;align-items:center;min-height:40px}
+.admnew{cursor:pointer;margin-bottom:10px}

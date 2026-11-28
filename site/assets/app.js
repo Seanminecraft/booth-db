@@ -63,7 +63,7 @@
     // text/plain 避免 CORS 預檢（Apps Script 不支援 OPTIONS）
     return fetch(API, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json(); }).then(function (j) { if (!j.ok) { if (/session/i.test(j.error || '')) logout(true); throw new Error(j.error || 'error'); }
-        if (!/^(me|preview|login|checkThumb|admin\.(summary|queue|audit|events|relations|suspensions|pairStart))$/.test(body.action)) OWNER_P = {}; // 寫入後清掉攤主頁快取
+        if (!/^(me|preview|login|checkThumb|admin\.(summary|home|counts|hiddenNames|queue|audit|events|relations|suspensions|pairStart)|ownerFull)$/.test(body.action)) OWNER_P = {}; // 寫入後清掉攤主頁快取
         return j; });
   }
 
@@ -83,7 +83,7 @@
     var lv = liveMeta();
     return snap('meta').then(function (m) { if (m && m.version) { if (!S.meta) S.meta = m; lv.catch(function () { }); return S.meta; } return lv; });
   }
-  function setIndex(d) { S.index = d; S.byId = {}; S.search = d.owners.map(function (o) { S.byId[o[0]] = o; return [o, nk([o[0], o[1]].concat(o[2], o[8] || []).join('|'))]; }); return d; }
+  function setIndex(d) { S.index = d; S.byId = {}; S.search = d.owners.map(function (o0) { var o = o0, ex = S.admHidden && S.admHidden[o0[0]]; if (ex) { o = o0.slice(); o[2] = o0[2].concat(ex); } /* 站長登入後，把被隱藏的舊攤名只放在記憶體（不寫入 sessionStorage），讓站長搜尋得到 */ S.byId[o[0]] = o; return [o, nk([o[0], o[1]].concat(o[2], o[8] || []).join('|'))]; }); return d; }
   function storeIndex(d) { try { sessionStorage.setItem('bdb_index', JSON.stringify(d)); } catch (e) { } }
   var INDEX_BG = null;
   /** 背景確認版本：伺服器版本號和手上的資料不同時，背景下載最新 index（下次換頁就用新的）。 */
@@ -213,11 +213,19 @@
       add(app, h('div', { class: 'skel two' }, h('div', null, h('div', { class: 'sk sk-block' }), h('div', { class: 'sk sk-block' })), h('div', null, h('div', { class: 'sk sk-graph' }), h('div', { class: 'spin', text: t('loading') })))); }).catch(function () { });
     loadVis().catch(function () { });
     Promise.all([loadIndex(), loadOwner(id), loadRel(), S.session ? refreshMe().catch(function () { return null; }) : null]).then(function (r) {
+      // p7：舊攤名被隱藏時，公開 API 不含舊名；攤主本人與站長改用需登入的 ownerFull 取得完整資料
+      var oo = S.byId[id], mm = S.me || { owned: [] };
+      if (S.session && (mm.admin || (mm.owned || []).indexOf(id) >= 0) && ((oo && oo[9]) || (r[1] && r[1].namesHidden))) return apiPost({ action: 'ownerFull', ownerId: id }).then(function (j) { r[4] = j.data; return r; }, function () { return r; });
+      return r;
+    }).then(function (r) {
       if (app.__view !== stamp) return;
-      var d = r[1], rel = r[2];
+      var d = r[1], rel = r[2], full = r[4];
+      if (full) d = Object.assign({}, d, { dbRows: full.dbRows, history: full.history });
       if (d.redirect) { toast(t('redirected', { a: id, b: d.redirect })); location.replace('#/o/' + d.redirect); return; }
       var o = S.byId[id] || [id, id, [], '', [], '', [], 0, []]; clear(app);
+      if (full && full.names) { o = o.slice(); o[2] = full.names; }
       var me = S.me || { owned: [], pending: [] }, mine = me.owned.indexOf(id) >= 0, pend = !mine && me.pending.indexOf(id) >= 0;
+      var namesHid = !!(o[9] || d.namesHidden || (full && full.namesHidden));
       var sns = [], seen = {}, fields = {};
       d.dbRows.forEach(function (row) { Object.keys(row.fields).forEach(function (k) { var v = row.fields[k]; if (TEXT_FIELDS.indexOf(k) >= 0) { if (!fields[k]) fields[k] = []; if (fields[k].indexOf(v) < 0) fields[k].push(v); } urls(v).forEach(function (u) { var s = safeUrl(u); if (s && !seen[s]) { seen[s] = 1; sns.push(s); } }); }); });
       var hidden = d.history.some(function (x) { return x.thumbHidden; });
@@ -231,12 +239,13 @@
       add(app, head);
       var left = h('div'), right = h('div');
       add(left, h('section', { class: 'card' }, h('h3', { text: t('detail_names') }), h('div', { class: 'tags' }, uniqNames(o[2]).map(function (v) { return h('span', { class: 'tag', text: v }); })),
-        fields['筆名'] ? h('div', { class: 'meta' }, t('pen') + '：' + fields['筆名'].join('、')) : null));
+        fields['筆名'] ? h('div', { class: 'meta' }, t('pen') + '：' + fields['筆名'].join('、')) : null,
+        mine || me.admin ? nameVisBox(id, namesHid, mine) : namesHid ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px', text: '🙈 ' + t('names_hidden_pub') }) : null));
       add(left, h('section', { class: 'card' }, h('h3', { text: t('detail_sns') }), sns.length ? h('div', { class: 'sns' }, sns.map(snsLink)) : h('div', { class: 'muted', text: t('no_sns') })));
       var hist = d.history.slice().reverse();
       add(left, h('section', { class: 'card' }, h('h3', null, t('detail_history'), h('small', { text: ' ' + hist.length })),
         h('table', { class: 't' }, h('thead', null, h('tr', null, ['h_event', 'h_date', 'h_name', 'h_booth', 'h_how', 'h_conf'].map(function (k) { return h('th', { text: t(k) }); }))),
-          h('tbody', null, hist.map(function (x) { return h('tr', null, h('td', null, h('span', { class: 'tag ev', text: x.ev })), h('td', { text: x.date }), h('td', { text: x.name }), h('td', { text: x.booth }), h('td', { class: 'muted', text: howLabel(x.how) }), h('td', null, h('span', { class: 'conf ' + (x.conf || 'low'), text: confLabel(x.conf) }))); })))));
+          h('tbody', null, hist.map(function (x) { return h('tr', null, h('td', null, h('span', { class: 'tag ev', text: x.ev })), h('td', { text: x.date }), h('td', { text: x.name || (namesHid ? '—' : '') }), h('td', { text: x.booth }), h('td', { class: 'muted', text: howLabel(x.how) }), h('td', null, h('span', { class: 'conf ' + (x.conf || 'low'), text: confLabel(x.conf) }))); })))));
       var gdiv = h('div', { id: 'graph' });
       add(right, h('section', { class: 'card' }, h('h3', { text: t('detail_graph') }),
         h('div', { class: 'legend' }, [['owner', 'legend_owner'], ['name', 'legend_name'], ['sns', 'legend_sns'], ['group', 'legend_group']].map(function (x) { return h('span', { class: 'lg' }, h('span', { class: 'sw', style: 'background:' + COLORS[x[0]] }), t(x[1])); }), h('span', { class: 'lg' }, h('span', { class: 'ln d' }), t('legend_weak'))), gdiv));
@@ -305,7 +314,7 @@
     return h('div', { class: 'card bk' + (mine ? ' mine' : '') },
       h('div', { class: 'oc', style: 'cursor:default;padding:0;background:none' }, b.thumb ? thumb(b.thumb) : null,
         h('div', { class: 'bd' }, h('div', { class: 'nm', text: b.name }), h('div', { class: 'meta' }, t('day1') + ' ' + (b.day1 || '—') + ' ・ ' + t('day2') + ' ' + (b.day2 || '—')))),
-      ['筆名', '創作者類型', '商品年齡分類', '作品類型 (原創、二創)', '二創參考作品 (原創免填)', '販售資訊', '特殊標籤或備註'].filter(function (k) { return f[k]; }).map(function (k) { return h('div', { class: 'f' + (k === '販售資訊' ? ' sales' : '') }, h('i', { text: k.replace(/ \(.*\)$/, '') }), k === '販售資訊' ? renderSales(f[k]) : f[k]); }),
+      ['筆名', '創作者類型', '商品年齡分類', '作品類型 (原創、二創)', '二創參考作品 (原創免填)', '販售資訊', '特殊標籤或備註'].filter(function (k) { if (!f[k]) return false; return !(k === REF_F && f[TYPE_F] && multiParse(TYPE_F, f[TYPE_F]).sel.indexOf('二創') < 0); /* 只選原創時不顯示二創參考作品 */ }).map(function (k) { return h('div', { class: 'f' + (k === '販售資訊' ? ' sales' : '') }, h('i', { text: k.replace(/ \(.*\)$/, '') }), k === '販售資訊' ? renderSales(f[k]) : MULTI[k] ? showMulti(k, f[k]) : f[k]); }),
       links.length ? h('div', { class: 'sns', style: 'margin-top:6px' }, links.slice(0, 10).map(snsLink)) : null,
       h('div', { class: 'acts', style: 'margin-top:8px' }, b.id ? h('a', { class: 'btn ghost', href: '#/o/' + b.id, text: t('ev_open_owner') }) : null,
         mine ? h('button', { class: 'btn', onclick: function () { fillFlow(d, b); }, text: t('ev_fill_mine') }) : null,
@@ -313,9 +322,27 @@
   }
 
   /* ---------- 登入 ---------- */
-  function refreshMe() { return apiPost({ action: 'me' }).then(function (j) { S.me = j.me; document.querySelectorAll('.admin-only').forEach(function (e) { e.hidden = !j.me.admin; }); return j.me; }); }
-  function doLogin(idToken) { return apiPost({ action: 'login', idToken: idToken }).then(function (j) { S.session = j.session; sessionStorage.setItem('bdb_session', j.session); S.me = j.me; document.querySelectorAll('.admin-only').forEach(function (e) { e.hidden = !j.me.admin; }); route(); }); }
-  function logout(silent) { S.session = ''; S.me = null; sessionStorage.removeItem('bdb_session'); if (window.google && google.accounts) try { google.accounts.id.disableAutoSelect(); } catch (e) { } if (!silent) route(); }
+  /* ---------- 站長：後台按鈕數字（p7）：每 60 秒輪詢 admin.counts（頁面隱藏時暫停），只讀幾個狀態欄，很輕量 ---------- */
+  var ADM_T = null;
+  function admPaint() {
+    var s = S.adm, n = (s && s.total) || 0, b = document.getElementById('admBadge'), err = s && s.error;
+    if (b) { b.hidden = !(n > 0 || err); b.textContent = err ? '!' : (n > 99 ? '99+' : String(n)); b.title = err === 'reauth' ? '站長登入已逾時：進入後台時會要求重新登入' : err ? '暫時讀不到待審核數量' : n ? '待審核／待核准 ' + n + (s.needsMySecond ? '（其中 ' + s.needsMySecond + ' 筆等你二審）' : '') : ''; b.className = 'nbadge' + (err ? ' err' : ''); }
+    document.title = (n > 0 ? '(' + n + ') ' : '') + document.title.replace(/^\(\d+\) /, '');
+  }
+  function admPush(sum) { if (!sum || !sum.counts) return; S.adm = { counts: sum.counts, total: sum.total, needsMySecond: sum.needsMySecond, at: sum.at, fetchedAt: Date.now() }; admPaint(); }
+  function admPoll() {
+    if (!S.session || !S.me || !S.me.admin) return Promise.resolve();
+    return apiPost({ action: 'admin.counts' }).then(function (j) { admPush(j.data); window.dispatchEvent(new Event('bdb-adm')); }).catch(function (e) {
+      S.adm = Object.assign({ counts: {}, total: 0 }, S.adm || {}, { error: /^REAUTH/.test(e.message) ? 'reauth' : 'net' }); admPaint(); window.dispatchEvent(new Event('bdb-adm')); });
+  }
+  function admStart() { if (ADM_T) return; admPoll(); ADM_T = setInterval(function () { if (!document.hidden) admPoll(); }, 60000);
+    if (!S.admHidden && !S.admHiddenP) S.admHiddenP = apiPost({ action: 'admin.hiddenNames' }).then(function (j) { S.admHidden = j.data || {}; if (S.index) setIndex(S.index); }).catch(function () { S.admHiddenP = null; }); }
+  function admStop() { if (ADM_T) clearInterval(ADM_T); ADM_T = null; S.adm = null; S.admHidden = null; S.admHiddenP = null; admPaint(); if (S.index) setIndex(S.index); }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && ADM_T && (!S.adm || Date.now() - (S.adm.fetchedAt || 0) > 20000)) admPoll(); });
+  function applyAdmin(me) { document.querySelectorAll('.admin-only').forEach(function (e) { e.hidden = !me.admin; }); if (me.admin) admStart(); else if (ADM_T) admStop(); }
+  function refreshMe() { return apiPost({ action: 'me' }).then(function (j) { S.me = j.me; applyAdmin(j.me); return j.me; }); }
+  function doLogin(idToken) { return apiPost({ action: 'login', idToken: idToken }).then(function (j) { S.session = j.session; sessionStorage.setItem('bdb_session', j.session); S.me = j.me; applyAdmin(j.me); route(); }); }
+  function logout(silent) { S.session = ''; S.me = null; admStop(); document.querySelectorAll('.admin-only').forEach(function (e) { e.hidden = true; }); sessionStorage.removeItem('bdb_session'); if (window.google && google.accounts) try { google.accounts.id.disableAutoSelect(); } catch (e) { } if (!silent) route(); }
   function loginBox() {
     var box = h('div', { class: 'card' }, h('h3', { text: t('login') }), h('p', { class: 'muted', text: t('login_why') }));
     var btn = h('div', { id: 'gbtn' }); add(box, btn);
@@ -406,16 +433,45 @@
   }
   function withdrawFlow() { if (!confirm(t('withdraw_confirm'))) return; apiPost({ action: 'withdraw' }).then(function (j) { toast(t('withdraw_done', { n: j.done })); logout(); }).catch(function (e) { toast(e.message); }); }
 
+  /* 複選欄位（p7）：作品類型＝原創／二創；商品年齡分類＝一般／R15／R18。畫面用可點選的選項鈕（平板好按），送出的值一律是中文標準值「A, B」。
+   * 「二創參考作品」只有在選了「二創」時才顯示；隱藏時不送出、不驗證，原本的值保留在整理表裡不動。 */
+  var MULTI = { '作品類型 (原創、二創)': ['原創', '二創'], '商品年齡分類': ['一般', 'R15', 'R18'] }, TYPE_F = '作品類型 (原創、二創)', REF_F = '二創參考作品 (原創免填)';
+  var MULTI_KEY = { '原創': 'opt_orig', '二創': 'opt_fan', '一般': 'opt_all', 'R15': 'opt_r15', 'R18': 'opt_r18' };
+  var MALIAS = { '原創': '原創', 'オリジナル': '原創', 'original': '原創', '二創': '二創', '二次創作': '二創', 'fanwork': '二創', 'fanworks': '二創', 'fanart': '二創', 'derivative': '二創', '一般': '一般', '全年齡': '一般', '全年齢': '一般', '全年齡向': '一般', 'allages': '一般', 'general': '一般', 'r15': 'R15', 'r-15': 'R15', 'r18': 'R18', 'r-18': 'R18', '18禁': 'R18' };
+  function multiParse(f, v) {
+    var opts = MULTI[f], got = {}, extra = [];
+    String(v || '').split(/[,，、;；\/\n|]+/).map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (tk) {
+      var k = tk.toLowerCase().replace(/[\s_]/g, ''), m = MALIAS[k] || MALIAS[k.replace(/-/g, '')];
+      if (m && opts.indexOf(m) >= 0) got[m] = 1; else if (extra.indexOf(tk) < 0) extra.push(tk); });
+    return { sel: opts.filter(function (o) { return got[o]; }), extra: extra };
+  }
+  function multiCanon(f, v) { var p = multiParse(f, v); return p.sel.concat(p.extra).join(', '); }
+  function optLabel(tok, adm) { var k = MULTI_KEY[tok]; return k ? (adm ? tz(k) : t(k)) : tok; }
+  /** 公開頁顯示：依介面語言顯示選項名稱（原創／Original／オリジナル…）。 */
+  function showMulti(f, v) { var p = multiParse(f, v); return p.sel.concat(p.extra).map(function (x) { return optLabel(x); }).join(lang === 'en' ? ' / ' : '、'); }
+  function multiSel(f, cur, isAdmin, onChange) {
+    var p = multiParse(f, cur), on = {}, order = MULTI[f].concat(p.extra), box = h('div', { class: 'msel', role: 'group', 'aria-label': f });
+    order.forEach(function (o) { on[o] = p.sel.indexOf(o) >= 0 || p.extra.indexOf(o) >= 0; });
+    function draw() { clear(box); order.forEach(function (o) { var b = h('button', { type: 'button', class: 'chip' + (on[o] ? ' on' : ''), 'aria-pressed': on[o] ? 'true' : 'false', text: (on[o] ? '✓ ' : '') + optLabel(o, isAdmin) });
+      b.addEventListener('click', function () { on[o] = !on[o]; draw(); if (onChange) onChange(); }); add(box, b); }); }
+    draw();
+    Object.defineProperty(box, 'value', { get: function () { return order.filter(function (o) { return on[o]; }).join(', '); } });
+    box.has = function (o) { return !!on[o]; }; box.norm = function (v) { return multiCanon(f, v); };
+    return box;
+  }
   /* 共用：欄位表單 → 預覽差異 → 確認送出 */
   function fieldForm(fields, current, onSubmit, extra, isAdmin) {
-    var inputs = {}, wrap = h('div'), pv = h('div');
+    var inputs = {}, rowEl = {}, wrap = h('div'), pv = h('div');
+    function updRef() { var rf = inputs[REF_F], tp = inputs[TYPE_F]; if (!rf || !tp) return; var show = tp.has('二創'); rowEl[REF_F].style.display = show ? '' : 'none'; rf.hiddenState = !show; }
     fields.forEach(function (f) {
-      var long = LONG_FIELDS.indexOf(f) >= 0, el = f === '販售資訊' ? salesEditor(current[f] || '', isAdmin) : long ? h('textarea', { class: 'in' }) : h('input', { class: 'in', placeholder: TEXT_FIELDS.indexOf(f) < 0 ? 'https://' : '' });
-      if (f !== '販售資訊') el.value = current[f] || ''; inputs[f] = el; add(wrap, h('div', { class: 'frow' }, h('div', { class: 'k', text: f }), el));
+      var long = LONG_FIELDS.indexOf(f) >= 0, el = MULTI[f] ? multiSel(f, current[f] || '', isAdmin, updRef) : f === '販售資訊' ? salesEditor(current[f] || '', isAdmin) : long ? h('textarea', { class: 'in' }) : h('input', { class: 'in', placeholder: TEXT_FIELDS.indexOf(f) < 0 ? 'https://' : '' });
+      if (f !== '販售資訊' && !MULTI[f]) el.value = current[f] || ''; inputs[f] = el;
+      rowEl[f] = h('div', { class: 'frow' }, h('div', { class: 'k', text: f }), MULTI[f] ? h('div', null, el, h('div', { class: 'muted', style: 'font-size:12px;margin-top:4px', text: isAdmin ? tz('multi_hint') : t('multi_hint') })) : el); add(wrap, rowEl[f]);
     });
+    updRef();
     var btnPv = h('button', { class: 'btn', text: t('preview') });
     btnPv.addEventListener('click', function () {
-      var ch = {}, old = {}; fields.forEach(function (f) { if (inputs[f].dirty === false) return; var v = inputs[f].value.trim(); if (v !== String(current[f] || '').trim()) { ch[f] = v; old[f] = current[f] || ''; } });
+      var ch = {}, old = {}; fields.forEach(function (f) { if (inputs[f].dirty === false || inputs[f].hiddenState) return; var v = inputs[f].value.trim(), cv = inputs[f].norm ? inputs[f].norm(current[f]) : String(current[f] || '').trim(); if (v !== cv) { ch[f] = v; old[f] = current[f] || ''; } });
       clear(pv); if (!Object.keys(ch).length) { add(pv, h('div', { class: 'note', text: t('diff_none') })); return; }
       apiPost({ action: 'preview', changes: ch, old: old }).then(function (j) {
         var res = j.data, blocked = false;
@@ -515,15 +571,27 @@
     Object.defineProperty(box, 'value', { get: function () { return serSales(rows); } });
     return box;
   }
+  /** 「使用過的攤名」開關（p7）：攤主自己切換立即生效、不需審核（只是改變誰看得到，不改資料）；站長也可代為切換（會記在站長操作紀錄）。 */
+  function nameVisBox(id, hiddenNow, byOwner) {
+    var T = byOwner ? t : tz, msg = h('span', { class: 'muted' }), btn = h('button', { class: 'btn ghost', type: 'button', text: hiddenNow ? T('names_show_btn') : T('names_hide_btn') });
+    btn.addEventListener('click', function () {
+      btn.disabled = true; var want = !hiddenNow;
+      (byOwner ? apiPost({ action: 'nameVis', ownerId: id, hidden: want }) : adminCall({ action: 'admin.setNameVis', ownerId: id, hidden: want })).then(function () {
+        toast(want ? T('names_hide_done') : T('names_show_done')); S.index = null; sessionStorage.removeItem('bdb_index'); OWNER_P = {};
+        return apiGet({ action: 'index' }).then(function (d) { setIndex(d); storeIndex(d); }).catch(function () { }).then(function () { route(); });
+      }).catch(function (e) { btn.disabled = false; msg.textContent = e.message; });
+    });
+    return h('div', { class: 'nvbox' }, h('div', { class: 'muted', style: 'font-size:12.5px' }, hiddenNow ? '🙈 ' + (byOwner ? T('names_hidden_mine') : '此攤主已隱藏舊攤名（公開頁看不到；站長可見）。') : '👁 ' + (byOwner ? T('names_shown_mine') : '此攤主的舊攤名目前公開。')), h('div', { class: 'acts', style: 'justify-content:flex-start;margin-top:6px' }, btn, msg));
+  }
   function editFlow(id) {
-    apiGet({ action: 'owner', id: id }).then(function (d) {
+    apiPost({ action: 'ownerFull', ownerId: id }).then(function (j) { return j.data; }).then(function (d) {
       var rows = d.dbRows.slice(), isNew = !rows.length;
       // 只有出展紀錄、主資料庫還沒有列的攤主：以最近一屆攤名建立「新列」表單，核准後伺服器才新增資料列
       if (isNew) { var last = d.history.length ? d.history[d.history.length - 1].name : ''; rows = [{ row: 0, fields: { '攤位名稱': last } }]; }
       var sel = h('select', { class: 'in' }, rows.map(function (r, i) { return h('option', { value: i, text: (r.fields['攤位名稱'] || ('#' + r.row)) + (isNew ? '（' + t('edit_new_row') + '）' : '') }); })), holder = h('div');
       function build() { clear(holder); var r = rows[+sel.value]; add(holder, fieldForm(DB_EDITABLE, r.fields, function (ch) { return apiPost({ action: 'edit', ownerId: id, rowName: r.fields['攤位名稱'] || '', changes: ch }).then(function (j) { S.index = null; sessionStorage.removeItem('bdb_index'); return j.data; }); })); }
       sel.addEventListener('change', build);
-      modal(t('edit_title') + '（' + id + '）', [h('div', { class: 'muted', style: 'text-align:right' }, helpQ('edit')), isNew ? h('div', { class: 'note warn', text: t('edit_new_row_note') }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
+      modal(t('edit_title') + '（' + id + '）', [h('div', { class: 'muted', style: 'text-align:right' }, helpQ('edit')), nameVisBox(id, !!d.namesHidden, true), isNew ? h('div', { class: 'note warn', text: t('edit_new_row_note') }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
     }).catch(function (e) { toast(t('err') + '：' + e.message); });
   }
   function fillFlow(d, b) {
@@ -541,13 +609,13 @@
   function adminCall(body) { return apiPost(body).catch(function (e) { if (/^REAUTH:/.test(e.message)) return reauth(e.message.replace(/^REAUTH:/, '')).then(function () { return apiPost(body); }); throw e; }); }
   function adminNote() { return h('div', { class: 'note admx', text: '🛠 站長直接修改：一般欄位按下確認後立即寫入（不進審核佇列），驗證規則與攤主相同；每一格都記錄在「站長操作紀錄」，可在後台稽核紀錄復原。身分欄位在有 2 位以上站長時會進入「待第二位確認」。' }); }
   function adminEditFlow(id) {
-    apiGet({ action: 'owner', id: id }).then(function (d) {
+    adminCall({ action: 'ownerFull', ownerId: id }).then(function (j) { return j.data; }).then(function (d) {
       var rows = d.dbRows.slice(), isNew = !rows.length;
       if (isNew) { var last = d.history.length ? d.history[d.history.length - 1].name : ''; rows = [{ row: 0, fields: { '攤位名稱': last } }]; }
       var sel = h('select', { class: 'in' }, rows.map(function (r, i) { return h('option', { value: i, text: (r.fields['攤位名稱'] || ('#' + r.row)) + (r.row ? '（第 ' + r.row + ' 列）' : '（新列）') }); })), holder = h('div');
       function build() { clear(holder); var r = rows[+sel.value]; add(holder, fieldForm(DB_EDITABLE, r.fields, function (ch) { return adminCall({ action: 'admin.ownerEdit', ownerId: id, rowName: r.fields['攤位名稱'] || '', changes: ch }).then(function (j) { S.index = null; sessionStorage.removeItem('bdb_index'); return adminResult(j.data); }); }, null, true)); }
       sel.addEventListener('change', build);
-      modal('🛠 站長編輯主資料（' + id + '）', [adminNote(), isNew ? h('div', { class: 'note warn', text: '此攤主在主資料庫還沒有列：寫入時會新增一列。' }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
+      modal('🛠 站長編輯主資料（' + id + '）', [adminNote(), nameVisBox(id, !!d.namesHidden, false), isNew ? h('div', { class: 'note warn', text: '此攤主在主資料庫還沒有列：寫入時會新增一列。' }) : null, h('label', { class: 'fl', text: t('edit_row') }), sel, holder]); build();
     }).catch(function (e) { toast(t('err') + '：' + e.message); });
   }
   function adminFillFlow(d, b) {
@@ -692,7 +760,7 @@
     if (parts[0] === 'events') return viewEvents(parts[1]);
     if (parts[0] === 'me') return viewMe();
     if (parts[0] === 'all') return viewAll();
-    if (parts[0] === 'admin') return window.viewAdmin ? window.viewAdmin({ h: h, add: add, clear: clear, t: t, app: app, apiPost: apiPost, setNav: setNav, loading: loading, fail: fail, S: S, thumb: thumb, safeUrl: safeUrl, platOf: platOf, hostOf: hostOf, toast: toast, loadMeta: loadMeta, loadIndex: loadIndex, loadRel: loadRel, needLogin: needLogin, urls: urls, route: route, modal: modal, closeModal: closeModal, reauth: reauth }, parts.slice(1)) : viewHome();
+    if (parts[0] === 'admin') return window.viewAdmin ? window.viewAdmin({ h: h, add: add, clear: clear, t: t, app: app, apiPost: apiPost, setNav: setNav, loading: loading, fail: fail, S: S, thumb: thumb, safeUrl: safeUrl, platOf: platOf, hostOf: hostOf, toast: toast, loadMeta: loadMeta, loadIndex: loadIndex, loadRel: loadRel, needLogin: needLogin, urls: urls, route: route, modal: modal, closeModal: closeModal, reauth: reauth, admState: function () { return S.adm; }, admPush: admPush, admPoll: admPoll }, parts.slice(1)) : viewHome();
     if (parts[0] === 'privacy') return viewPrivacy();
     if (parts[0] === 'help') return viewHelp(parts[1]);
     return viewHome();

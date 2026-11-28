@@ -3,9 +3,11 @@
 window.viewAdmin = function (C, parts) {
   'use strict';
   var h = C.h, add = C.add, clear = C.clear, app = C.app, tab = parts[0] || 'queue';
-  C.setNav('admin'); C.loading();
-  if (!C.S.session) { clear(app); add(app, h('div', { class: 'card note warn', text: '請先登入（站長 Google 帳號）：到「我的攤位」登入後再回來。' })); return; }
+  C.setNav('admin');
+  if (!C.S.session) { C.loading(); clear(app); add(app, h('div', { class: 'card note warn', text: '請先登入（站長 Google 帳號）：到「我的攤位」登入後再回來。' })); return; }
   var TABS = [['queue', '📥 待審核'], ['events', '🗓 整理中場次'], ['relations', '🔗 關聯判定'], ['owners', '⛔ 停權／鎖定'], ['audit', '🧾 稽核紀錄'], ['settings', '⚙️ 站長與安全'], ['help', '📘 使用說明']];
+  var ACT = { queue: 'admin.queue', events: 'admin.events', relations: 'admin.relations', owners: 'admin.suspensions' }, PRE = {};
+  var FRESH = !!window.__admFresh; window.__admFresh = false; // 按「重新整理」時要求伺服器略過快取
   /** 呼叫站長 API；伺服器要求重新登入（REAUTH）時跳出 Google 登入，完成後自動重試一次。 */
   function call(body) {
     return C.apiPost(body).catch(function (e) {
@@ -13,12 +15,45 @@ window.viewAdmin = function (C, parts) {
       throw e;
     }).then(function (j) { return j.data; });
   }
-  call({ action: 'admin.summary' }).then(function (sum) {
-    clear(app);
-    var side = h('nav', { class: 'card side' }, h('div', { class: 'muted', style: 'padding:0 12px 8px' }, (sum.role === 'owner' ? '👑 擁有者站長 ' : '站長 '), h('b', { text: sum.admin })),
-      TABS.map(function (x) { var n = sum.counts[x[0]]; return h('a', { href: '#/admin/' + x[0], class: x[0] === tab ? 'on' : '' }, h('span', { text: x[1] }), n ? h('span', { class: 'badge', text: n }) : null); }),
-      h('div', { class: 'muted', style: 'padding:10px 12px 0;font-size:12px' }, sum.twoAdmin ? '站長 ' + sum.admins.length + ' 位：身分欄位需第二位站長確認' : '目前只有 1 位站長'));
-    var main = h('div'); add(app, h('div', { class: 'adm' }, side, main));
+  /** 分頁資料：進後台時已隨 admin.home 一起回來（不用再等第二次往返）；之後才自己呼叫。 */
+  function take(key) { if (PRE[key] !== undefined) { var d = PRE[key]; delete PRE[key]; return Promise.resolve(d); } return call({ action: ACT[key], fresh: FRESH }); }
+
+  /* ---- 骨架：先畫出側欄與工具列（用上次的數字），資料回來再補 ---- */
+  var AUTO_KEY = 'bdb_adm_auto';
+  function autoOn() { try { return localStorage.getItem(AUTO_KEY) !== '0'; } catch (e) { return true; } }
+  function sig(s) { var c = (s && s.counts) || {}; return [c.queue, c.relations, c.owners, s && s.needsMySecond].join('|'); }
+  function hhmm(ms) { var d = new Date(ms || Date.now()); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function sideNode(sum) {
+    var st = C.admState && C.admState(), cn = (sum && sum.counts) || (st && st.counts) || {};
+    return h('nav', { class: 'card side' }, sum ? h('div', { class: 'muted', style: 'padding:0 12px 8px' }, (sum.role === 'owner' ? '👑 擁有者站長 ' : '站長 '), h('b', { text: sum.admin })) : null,
+      TABS.map(function (x) { var n = cn[x[0]]; return h('a', { href: '#/admin/' + x[0], class: x[0] === tab ? 'on' : '', 'data-tab': x[0] }, h('span', { text: x[1] }), h('span', { class: 'badge', 'data-b': x[0], hidden: !n, text: n || '' })); }),
+      sum ? h('div', { class: 'muted', style: 'padding:10px 12px 0;font-size:12px' }, sum.twoAdmin ? '站長 ' + sum.admins.length + ' 位：身分欄位需第二位站長確認' : '目前只有 1 位站長') : null);
+  }
+  var side = sideNode(null), main = h('div'), stampEl = h('span', { class: 'muted', text: '更新中…' }), stateEl = h('span', { class: 'muted' }), banner = h('div'), shownSig = null;
+  var btnRefresh = h('button', { class: 'btn ghost', type: 'button', text: '🔄 重新整理' }), chk = h('input', { type: 'checkbox', 'data-auto': '1' });
+  chk.checked = autoOn(); chk.addEventListener('change', function () { try { localStorage.setItem(AUTO_KEY, chk.checked ? '1' : '0'); } catch (e) { } stateEl.textContent = chk.checked ? '' : '自動更新已關閉（仍會更新按鈕上的數字）'; });
+  btnRefresh.addEventListener('click', function () { window.__admFresh = true; btnRefresh.disabled = true; btnRefresh.textContent = '更新中…'; C.route(); });
+  var tool = h('div', { class: 'admtool' }, btnRefresh, h('label', null, chk, h('span', { text: '自動更新（每分鐘）' })), stampEl, stateEl);
+  clear(app); add(app, h('div', { class: 'adm' }, side, main)); add(main, tool, banner); var ph = h('div', { class: 'card muted', text: '讀取中…' }); add(main, ph);
+  function busy() { return !!document.querySelector('#modal:not([hidden])') || !!main.querySelector('input[type=checkbox]:checked:not([data-auto])') || (document.activeElement && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName) && main.contains(document.activeElement) && document.activeElement !== chk); }
+  function paint(s) {
+    TABS.forEach(function (x) { var b = side.querySelector('[data-b="' + x[0] + '"]'); if (!b) return; var n = (s.counts || {})[x[0]]; b.hidden = !n; b.textContent = n || ''; });
+    if (s.fetchedAt) stampEl.textContent = '最後更新 ' + hhmm(s.fetchedAt);
+    stateEl.textContent = s.error === 'reauth' ? '⚠ 登入已逾時，自動更新暫停；按「重新整理」重新登入' : s.error ? '⚠ 暫時連不上，稍後自動重試' : (chk.checked ? '' : '自動更新已關閉（仍會更新按鈕上的數字）');
+  }
+  function onAdm() {
+    if (!/^#\/admin/.test(location.hash)) { window.removeEventListener('bdb-adm', onAdm); return; }
+    var s = C.admState(); if (!s) return; paint(s);
+    if (shownSig === null || s.error || sig(s) === shownSig || !ACT[tab]) return;
+    if (chk.checked && !busy()) { C.route(); return; }
+    clear(banner); add(banner, h('div', { class: 'card note warn admnew', onclick: function () { C.route(); }, text: '🔔 有新的待審核項目（目前 ' + (s.total || 0) + ' 筆）。點這裡更新' + (busy() ? '（你正在操作，所以沒有自動換頁面）' : '') }));
+  }
+  if (window.__admL) window.removeEventListener('bdb-adm', window.__admL); window.__admL = onAdm; window.addEventListener('bdb-adm', onAdm);
+
+  call({ action: 'admin.home', tab: ACT[tab] ? tab : '', fresh: FRESH }).then(function (res) {
+    var sum = res.summary; if (res.tabKey) PRE[res.tabKey] = res.tabData;
+    C.admPush(sum); shownSig = sig(sum); var ns = sideNode(sum); side.parentNode.replaceChild(ns, side); side = ns; paint(C.admState());
+    ph.remove();
     if (sum.needsMySecond) add(main, h('div', { class: 'card note warn' }, '🔐 有 ', h('b', { text: sum.needsMySecond }), ' 筆身分欄位等你做第二位確認（在「待審核」最上面）。'));
     var HID = { queue: 'queue', events: 'event', relations: 'merge', owners: 'suspend', audit: 'revert', settings: 'editors' }[tab];
     if (HID) add(main, h('div', { class: 'muted', style: 'text-align:right;margin:-4px 0 8px;font-size:13px' }, h('a', { href: '#/admin/help/' + HID, text: '這一頁怎麼用' }), ' ', window.BOOTH_HELP.q(HID, true)));
@@ -58,7 +93,7 @@ window.viewAdmin = function (C, parts) {
 
   /* ---- 待審核 ---- */
   function queue(main, sum) {
-    call({ action: 'admin.queue' }).then(function (q) {
+    take('queue').then(function (q) {
       var sel = {}, cnt = h('b', { text: '0' });
       var bulk = h('div', { class: 'bulk' }, h('span', null, '已選 ', cnt, ' 筆'),
         h('button', { class: 'btn ok', onclick: function () { decide(Object.keys(sel), 'approve'); }, text: '✅ 核准所選' }),
@@ -108,7 +143,7 @@ window.viewAdmin = function (C, parts) {
 
   /* ---- 整理中場次 ---- */
   function events(main, sum) {
-    call({ action: 'admin.events' }).then(function (d) {
+    take('events').then(function (d) {
       add(main, h('div', { class: 'card' }, h('div', { class: 'ghead' }, h('h3', { style: 'margin:0', text: '場次填寫模式' }),
         h('div', null, h('button', { class: 'pill' + (d.mode === 'queue' ? ' on' : ''), onclick: function () { setMode('queue'); }, text: '🛡 審核制（預設）' }), h('button', { class: 'pill' + (d.mode === 'live' ? ' on' : ''), onclick: function () { if (confirm('切換為即時制？已核准攤主的低風險填寫會立即寫入整理表（可復原）。')) setMode('live'); }, text: '⚡ 即時制' }))),
         h('p', { class: 'muted', text: '審核制：攤主填寫全部進入待審核。即時制：已核准攤主、風險 < 30、非身分欄位的填寫立即寫入整理表（記錄套用前值，可一鍵復原）。站長在場次頁的直接修改不受此設定影響。' })));
@@ -148,7 +183,7 @@ window.viewAdmin = function (C, parts) {
 
   /* ---- 關聯判定 ---- */
   function relations(main) {
-    Promise.all([call({ action: 'admin.relations' }), C.loadIndex(), C.loadRel()]).then(function (r) {
+    Promise.all([take('relations'), C.loadIndex(), C.loadRel()]).then(function (r) {
       var d = r[0], rel = r[2], done = {}, items = [], page = 0, PER = 15;
       d.decisions.forEach(function (x) { if (x.status === '有效') done[[x.a, x.b].sort().join('|')] = x.decision; });
       d.reports.forEach(function (x) { if (/^C\d{5,}$/.test(x.b)) items.push({ a: x.a, b: x.b, reason: '攤主回報：' + x.kind + (x.note ? '（' + x.note + '）' : ''), reported: true }); });
@@ -182,7 +217,7 @@ window.viewAdmin = function (C, parts) {
 
   /* ---- 停權 ---- */
   function ownersTab(main) {
-    call({ action: 'admin.suspensions' }).then(function (list) {
+    take('owners').then(function (list) {
       var tg = h('input', { class: 'in', placeholder: '攤主ID（C00045）或申請者代號（u_…）' });
       function sus(t, restore) { ask((restore ? '恢復：' : '停權／鎖定：') + t, '原因（會記錄）', !restore).then(function (n) { if (n === null) return; call({ action: 'admin.suspend', target: t, restore: restore, note: n }).then(function (r) { C.toast('已處理 ' + r.n + ' 筆'); C.route(); }).catch(function (e) { C.toast(e.message); }); }); }
       add(main, h('div', { class: 'card' }, h('h3', { text: '停權／鎖定' }),

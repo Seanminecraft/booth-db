@@ -633,5 +633,75 @@ ok('任何工作表都沒有 email／姓名／sub', !all.includes('someone@examp
   ok('[p6] 攤主送出套組：修改申請的新值與輸入完全相同（含換行）', fr.ok && er6 && er6[8] === ex, JSON.stringify(fr.error || (er6 && er6[8])));
   ok('[p6] 前端／後端格式一致：p5 單品格式仍通過', G.salesFormat_('💠 新刊【畫冊 Vol.2 NT$300】\n💠周邊【 壓克力立牌、明信片 】').value === '💠新刊【畫冊 Vol.2 NT$300】\n💠周邊【壓克力立牌、明信片】');
 }
+// ===== 17. p7：複選欄位、後台數字、隱藏舊攤名 =====
+{
+  const A = b => post(b), login = sub => post({ action: 'login', idToken: 'fake:' + sub });
+  // -- 複選欄位（作品類型／商品年齡分類）：標準化、相容舊資料、亂填被拒 --
+  const TY = '作品類型 (原創、二創)', AG = '商品年齡分類', RF = '二創參考作品 (原創免填)';
+  const v1 = G.validateField_(TY, ['二創', '原創'], ''), v2 = G.validateField_(AG, 'r-18、全年齡', ''), v3 = G.validateField_(AG, 'R18, 一般', '');
+  ok('[p7] 作品類型可複選：陣列＋亂序 → 標準順序「原創, 二創」', v1.ok && v1.value === '原創, 二創', JSON.stringify(v1));
+  ok('[p7] 年齡分級可複選：別名（r-18、全年齡）與頓號分隔 → 「一般, R18」', v2.ok && v2.value === '一般, R18', JSON.stringify(v2));
+  ok('[p7] 整理表現有資料 "R18, 一般" 可讀、單選值照舊可用', v3.ok && v3.value === '一般, R18' && G.validateField_(AG, 'R15', '').value === 'R15' && G.validateField_(TY, '原創', '').value === '原創');
+  ok('[p7] 新舊值只差順序 → 視為沒改（不會多一筆「取代既有值」）', G.sameVal_(AG, '一般, R18', 'R18, 一般') && G.validateField_(AG, '一般, R18', 'R18, 一般').risk === 0);
+  ok('[p7] 亂填被拒、可清空', !G.validateField_(TY, '原創、同人', '').ok && !G.validateField_(AG, 'R20', '').ok && G.validateField_(AG, '', 'R18').ok);
+  ok('[p7] HTML 仍被擋', !G.validateField_(TY, '<b>原創', '').ok);
+  // 站長直接修改場次：複選值寫入整理表為標準格式；二創參考作品不受影響
+  const evS = env.files[FFK].getSheetByName('攤位整理表 請在此填寫資訊'), EH = evS.data[0], cT = EH.indexOf(TY), cA = EH.indexOf(AG), cR = EH.indexOf(RF);
+  const used7 = new Set(edits().map(e => String(e[5]).split('｜')[0]));
+  const ti = evS.data.slice(1).findIndex(r => r[0] && !r[cT] && !r[cA] && evS.data.filter(x => x[0] === r[0]).length === 1 && !used7.has(r[0])) + 2, tb = evS.data[ti - 1], AD = login('admin-one');
+  const refBefore = tb[cR] || '';
+  const ee = A({ action: 'admin.eventEdit', session: AD.session, event: 'FFK19', booth: tb[0], expect: {}, changes: { [TY]: ['二創', '原創'], [AG]: 'R18, 一般' } });
+  ok('[p7] 站長直接修改：複選值以「, 」連接、標準順序寫入整理表', ee.ok && evS.data[ti - 1][cT] === '原創, 二創' && evS.data[ti - 1][cA] === '一般, R18' && (evS.data[ti - 1][cR] || '') === refBefore, JSON.stringify(ee.error || [evS.data[ti - 1][cT], evS.data[ti - 1][cA]]));
+  const bad7 = A({ action: 'admin.eventEdit', session: AD.session, event: 'FFK19', booth: tb[0], changes: { [AG]: 'R99' } });
+  ok('[p7] 站長寫入也擋非選項值、整理表不變', bad7.ok === false && evS.data[ti - 1][cA] === '一般, R18', bad7.error);
+  // -- 後台數字：admin.counts --
+  const C1 = A({ action: 'admin.counts', session: AD.session }), SU = A({ action: 'admin.summary', session: AD.session });
+  ok('[p7] admin.counts：回傳各分頁數量、與 summary 一致', C1.ok && JSON.stringify(C1.data.counts) === JSON.stringify(SU.data.counts) && C1.data.total === C1.data.counts.queue + C1.data.counts.relations && C1.data.version === '2026-11-28-p7', JSON.stringify(C1.data || C1.error));
+  const NO7 = login('plain-user-p7');
+  ok('[p7] admin.counts：非站長被拒、偽造 session 被拒', /沒有站長權限/.test(A({ action: 'admin.counts', session: NO7.session }).error) && A({ action: 'admin.counts', session: AD.session.slice(0, -2) + 'xx' }).ok === false);
+  let allOk = true; for (let i = 0; i < 350; i++) if (!A({ action: 'admin.counts', session: AD.session }).ok) { allOk = false; break; }
+  ok('[p7] admin.counts 輪詢不計入每小時操作上限（連呼 350 次仍可用）', allOk && A({ action: 'admin.summary', session: AD.session }).ok);
+  // 新的待審項目 → 數字會變；處理後會減少
+  const U7 = login('p7-owner'), uid7 = G.readSession_(U7.session), idx7 = get({ action: 'index' }).data, taken7 = new Set(claims().map(r => r[2]));
+  const multi = idx7.owners.find(o => o[2].length >= 3 && !taken7.has(o[0]) && o[1] && !o[9]);
+  A({ action: 'claim', session: U7.session, ownerId: multi[0], method: 'discord' });
+  G.bumpVersion_(); const C2 = A({ action: 'admin.counts', session: AD.session });
+  ok('[p7] 有人送出認領 → 待審核數量 +1', C2.data.counts.queue === C1.data.counts.queue + 1, C1.data.counts.queue + ' → ' + C2.data.counts.queue);
+  const cl7 = claims().findIndex(r => r[4] === uid7), crow = claims()[cl7];
+  const H1 = A({ action: 'admin.home', session: AD.session, tab: 'queue' });
+  ok('[p7] admin.home：一次回傳 summary＋待審核佇列（含剛才的認領）', H1.ok && H1.data.summary.counts.queue === C2.data.counts.queue && H1.data.tabKey === 'queue' && H1.data.tabData.claims.some(c => c.id === crow[0]), JSON.stringify(H1.error || ''));
+  ok('[p7] admin.home 其他分頁（events／relations／owners）可用', ['events', 'relations', 'owners'].every(t => { const r = A({ action: 'admin.home', session: AD.session, tab: t }); return r.ok && r.data.tabKey === t && !!r.data.tabData; }));
+  A({ action: 'admin.decide', session: AD.session, ids: [crow[0]], decision: 'approve' });
+  const C3 = A({ action: 'admin.counts', session: AD.session });
+  ok('[p7] 站長處理後，數量立即減少（不用等快取過期）', C3.data.counts.queue === C1.data.counts.queue, C3.data.counts.queue);
+  // -- 使用過的攤名：預設公開；攤主可隱藏（立即生效、不需審核）；公開 API 與搜尋看不到；攤主與站長仍看得到 --
+  const id7 = multi[0], names7 = multi[2].slice(), cur7 = multi[1], old7 = names7.filter(n => n !== cur7);
+  ok('[p7] 預設公開：index 含多個攤名、沒有隱藏旗標', names7.length >= 3 && multi[9] === 0 && !ss_has(), names7.join('、'));
+  function ss_has() { return !!env.files[DB_ID].getSheetByName('攤名顯示設定'); }
+  ok('[p7] 非本人不能隱藏', A({ action: 'nameVis', session: NO7.session, ownerId: id7, hidden: true }).ok === false);
+  const hv = A({ action: 'nameVis', session: U7.session, ownerId: id7, hidden: true });
+  ok('[p7] 攤主自己隱藏：立即生效，不需審核（沒有新增任何待審項目）', hv.ok && hv.data.hidden === true && A({ action: 'admin.counts', session: AD.session }).data.counts.queue === C1.data.counts.queue, JSON.stringify(hv.error || hv.data));
+  ok('[p7] 程式自動建立「攤名顯示設定」分頁（只新增紀錄）', ss_has() && sheet(DB_ID, '攤名顯示設定').data[0].join() === '攤主ID,狀態,時間,設定者,備註' && sheet(DB_ID, '攤名顯示設定').data[1][0] === id7 && sheet(DB_ID, '攤名顯示設定').data[1][1] === '隱藏');
+  const ix = get({ action: 'index' }).data, o7 = ix.owners.find(o => o[0] === id7), rawIdx = JSON.stringify(get({ action: 'index' }));
+  ok('[p7] 公開 index：只剩目前攤名、旗標＝1', o7[9] === 1 && o7[2].length === 1 && o7[2][0] === cur7 && o7[1] === cur7, JSON.stringify(o7[2]));
+  ok('[p7] 公開 index 全文找不到這位的任何舊攤名（搜尋舊名也不會命中）', old7.every(n => !ix.owners.some(o => o[0] === id7 && JSON.stringify(o).includes(n))));
+  const pubD = get({ action: 'owner', id: id7 }).data, pubTxt = JSON.stringify(pubD);
+  ok('[p7] 公開 owner API：出展紀錄與主資料列都不含舊攤名（不是只用 CSS 藏）', pubD.namesHidden === 1 && old7.every(n => !pubD.history.some(h => h.name === n) && !pubD.dbRows.some(r => r.fields['攤位名稱'] === n)), pubD.history.map(h => h.name).join('｜'));
+  ok('[p7] 目前攤名仍然公開', pubD.history.some(h => h.name === cur7) || pubD.dbRows.some(r => r.fields['攤位名稱'] === cur7));
+  const own = A({ action: 'ownerFull', session: U7.session, ownerId: id7 });
+  ok('[p7] 攤主本人用 ownerFull 仍看得到全部舊攤名（可編輯各列）', own.ok && old7.every(n => own.data.names.includes(n)) && own.data.namesHidden === 1);
+  ok('[p7] ownerFull：陌生人被拒、站長可看', A({ action: 'ownerFull', session: NO7.session, ownerId: id7 }).ok === false && A({ action: 'ownerFull', session: AD.session, ownerId: id7 }).data.names.length === names7.length);
+  const hn = A({ action: 'admin.hiddenNames', session: AD.session });
+  ok('[p7] 站長可取得被隱藏者的完整攤名（供站長搜尋）；一般帳號不行', hn.ok && old7.every(n => (hn.data[id7] || []).includes(n)) && A({ action: 'admin.hiddenNames', session: NO7.session }).ok === false);
+  ok('[p7] 隱藏後攤主仍可修改主資料（編輯用 rowName 不受影響）', (() => { const r = A({ action: 'edit', session: U7.session, ownerId: id7, rowName: own.data.dbRows.length ? own.data.dbRows[0].fields['攤位名稱'] : '', changes: { '筆名': 'p7-test' } }); return r.ok; })());
+  // 站長代為切換（記錄在站長操作紀錄）；再公開
+  const av = A({ action: 'admin.setNameVis', session: AD.session, ownerId: id7, hidden: false });
+  const ix2 = get({ action: 'index' }).data.owners.find(o => o[0] === id7);
+  ok('[p7] 站長代為公開：index 恢復完整攤名、記錄在站長操作紀錄', av.ok && ix2[9] === 0 && names7.every(n => ix2[2].includes(n)) && sheet(DB_ID, '站長操作紀錄').data.some(r => r[3] === '公開舊攤名' && r[4] === id7), JSON.stringify(av.error || ''));
+  ok('[p7] 重複設定相同狀態不新增紀錄', A({ action: 'admin.setNameVis', session: AD.session, ownerId: id7, hidden: false }).data.unchanged === true);
+  A({ action: 'admin.setNameVis', session: AD.session, ownerId: id7, hidden: true });
+  ok('[p7] 站長代為隱藏後，攤主本人可再公開（以最後一筆為準）', A({ action: 'nameVis', session: U7.session, ownerId: id7, hidden: false }).ok && get({ action: 'index' }).data.owners.find(o => o[0] === id7)[9] === 0);
+  ok('[p7] 壞的攤主ID被拒', A({ action: 'nameVis', session: U7.session, ownerId: '../x', hidden: true }).ok === false && A({ action: 'admin.setNameVis', session: AD.session, ownerId: 'x', hidden: true }).ok === false);
+}
 ok('自我檢查全部通過', G.selfTest_().every(l => l.startsWith('✅')), G.selfTest_().filter(l => !l.startsWith('✅')).join(' '));
 console.log(results.join('\n')); console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

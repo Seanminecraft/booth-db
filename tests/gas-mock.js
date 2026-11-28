@@ -1,7 +1,8 @@
 // Minimal Google Apps Script mocks for running apps-script/code.gs under Node (no network, no Google APIs).
 'use strict';
 const crypto = require('crypto');
-const writes = [];       // every cell write: {file, sheet, a1, value}
+const writes = [];
+const stats = { cells: 0, reads: 0, opens: 0 }; // p7：效能量測用（讀取的儲存格數、讀取次數、開檔次數）       // every cell write: {file, sheet, a1, value}
 const mails = [];
 function colL(n) { let s = ''; n = n + 1; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
 function colN(s) { let n = 0; for (const ch of s) n = n * 26 + ch.charCodeAt(0) - 64; return n; }
@@ -9,7 +10,7 @@ const disp = v => { v = v === null || v === undefined ? '' : (v instanceof Date 
 class Range {
   constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr, nc }); }
   _cell(i, j) { const row = this.sh.data[this.r - 1 + i] || []; return row[this.c - 1 + j]; }
-  getValues() { const o = []; for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) { const v = this._cell(i, j); row.push(v === undefined || v === null ? '' : disp(v)); } o.push(row); } return o; }
+  getValues() { stats.cells += this.nr * this.nc; stats.reads++; const o = []; for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) { const v = this._cell(i, j); row.push(v === undefined || v === null ? '' : disp(v)); } o.push(row); } return o; }
   getDisplayValues() { return this.getValues().map(r => r.map(v => String(v))); }
   getValue() { return this.getValues()[0][0]; } getDisplayValue() { return String(this.getValue()); }
   getFormulas() { const o = []; for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) row.push(this.sh.formulas[(this.r + i) + ':' + (this.c + j)] || ''); o.push(row); } return o; }
@@ -26,7 +27,7 @@ class Sheet {
   constructor(file, name, data, formulas) { this.file = file; this.name = name; this.data = data.map(r => r.slice()); this.formulas = formulas || {}; this.maxRows = Math.max(this.data.length, 1000); }
   _set(r, c, v) { while (this.data.length < r) this.data.push([]); const row = this.data[r - 1]; while (row.length < c) row.push(''); row[c - 1] = v; if (r > this.maxRows) this.maxRows = r; }
   _log(r, c, v) { writes.push({ file: this.file.id, sheet: this.name, a1: colL(c - 1) + r, value: v }); }
-  getName() { return this.name; } setName(n) { this.name = n; return this; }
+  getParent() { return this.file; } getName() { return this.name; } setName(n) { this.name = n; return this; }
   getLastRow() { for (let i = this.data.length; i > 0; i--) if ((this.data[i - 1] || []).some(v => v !== '' && v !== null && v !== undefined)) return i; return 0; }
   getLastColumn() { return Math.max(0, ...this.data.map(r => { for (let j = r.length; j > 0; j--) if (r[j - 1] !== '' && r[j - 1] !== undefined) return j; return 0; })); }
   getMaxRows() { return this.maxRows; } insertRowsAfter(_, n) { this.maxRows += n; } deleteRows(r, n) { this.data.splice(r - 1, n); this.maxRows -= n; }
@@ -53,7 +54,7 @@ function makeEnv(opts) {
   const fromBytes = a => Buffer.from(a.map(b => b < 0 ? b + 256 : b));
   const env = {
     console, JSON, Math, Date, String, Number, Array, Object, RegExp, Error, encodeURIComponent, parseInt, isNaN,
-    SpreadsheetApp: { getActive: () => active, openById: id => { if (!files[id]) throw new Error('no file ' + id); return files[id]; }, getUi: () => ({
+    SpreadsheetApp: { getActive: () => active, openById: id => { if (!files[id]) throw new Error('no file ' + id); stats.opens++; return files[id]; }, getUi: () => ({
       prompt: () => { const t = ui.prompts.shift(); return { getSelectedButton: () => 'OK', getResponseText: () => t || '' }; }, alert: (a, b) => { ui.alerts.push(b || a); return 'YES'; },
       ButtonSet: { OK_CANCEL: 1, YES_NO: 2 }, Button: { OK: 'OK', YES: 'YES' }, createMenu: () => ({ addItem() { return this; }, addSeparator() { return this; }, addToUi() { } }), showModalDialog() { } }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
@@ -96,4 +97,4 @@ function renderTemplate(html, data) {
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   return new Function('__d', '__esc', code)(data, esc);
 }
-module.exports = { makeEnv, writes, mails, colL };
+module.exports = { makeEnv, writes, mails, colL, stats };
