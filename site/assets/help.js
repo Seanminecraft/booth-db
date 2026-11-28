@@ -6,9 +6,10 @@ window.HELP = {
       { id: 'search', t: '找到你的攤位', img: 'zh-search', s: ['打開首頁。', '在上方搜尋框輸入攤名、筆名或 SNS 帳號。', '點結果卡片，就會打開攤主頁。'] },
       { id: 'claim', t: '認領攤位：拿驗證碼、選方式', img: 'zh-claim', s: ['按右上「我的攤位」，用 Google 登入。', '回到你的攤主頁，按「這是我 → 認領」。', '畫面會出現你的驗證碼（例：JP-AB12CD），可以按「複製」。', '選一種方式：① SNS 貼文：用攤位資料上的 SNS 帳號發文附上驗證碼，再貼上「那則貼文」的網址。② 私訊加帕利天藍怪預警中心的 FB 粉專或 LINE 官方帳號，傳驗證碼。③ 動漫同人展資訊組 Discord：選「社團攤主」身分 → 往下到「管理事務區」→ 進「攤位整理系統後台 攤主權限申請」頻道，提醒管理員並貼上驗證碼。', '按「送出申請」。'] },
       { id: 'contact', t: '送出後：聯繫加帕利主編', img: 'zh-claim-done', s: ['送出後畫面會顯示「已送出申請」和你的驗證碼。', '⚠ 特別提醒：按下申請後請盡速與加帕利主編聯繫，我們會盡快幫您進行查驗。', '用你選的方式（粉專、LINE 或 Discord）把驗證碼傳給我們。', '站長確認後，攤位就會出現在「我的攤位」。'] },
-      { id: 'edit', t: '修改我的攤位資料', img: 'zh-edit', s: ['到「我的攤位」，在你的攤位按「修改主資料」。', '只改你要改的格子。', '按「預覽變更」看一遍，再按「確認送出」。', '一般欄位可能馬上生效；換掉 SNS 主帳號、攤位名稱等身分資料，要等站長確認。'] },
+      { id: 'edit', t: '修改我的攤位資料', img: 'zh-edit', s: ['到「我的攤位」，在你的攤位按「修改主資料」。', '只改你要改的格子（攤名、筆名、SNS 等）。作品類型和年齡分級請到「整理中場次」按「填寫我的攤位」修改。', '按「預覽變更」看一遍，再按「確認送出」。', '一般欄位可能馬上生效；換掉 SNS 主帳號、攤位名稱等身分資料，要等站長確認。'] },
+      { id: 'names', t: '隱藏用過的攤名', img: 'zh-names', s: ['打開你的攤主頁。舊攤名預設會公開顯示。', '若不希望別人看到或搜到舊攤名，按「🙈 隱藏舊攤名」。立刻生效，不用等審核。', '隱藏後，訪客和搜尋都看不到舊攤名；你和站長還是看得到。目前使用的攤名不受影響。', '之後若要再公開，按「👁 公開舊攤名」即可。剛隱藏時，網站可能要等一下子才完全更新，最多大約一小時。'] },
       { id: 'thumb', t: '放攤位縮圖（Google 雲端連結）', img: 'zh-thumb', s: ['把圖片上傳到 Google 雲端硬碟。', '在圖片上按「共用」，把一般存取權改成「知道連結的任何人」。', '複製連結，貼到「縮圖」格。', '按「檢查是否公開」。看到 ✅ 才代表別人看得到。'] },
-      { id: 'sales', t: '填寫販售資訊', img: 'zh-sales', s: ['到「整理中場次」，找到你的攤位按「填寫我的攤位」。', '單品按「＋單品」：左邊填類別，右邊填內容。', '系統會自動寫成「💠類別【內容】」，例如「💠新刊【畫冊 Vol.2 NT$300】」。', '有套組時按「＋套組」：填套組名稱，再逐一加商品，系統自動編號成「💠套組名稱」「1. 商品名」「2. 商品名」。', '用「↑」「↓」調整順序、「×」刪除，確認下面的文字後按送出。'] },
+      { id: 'sales', t: '填寫販售資訊', img: 'zh-sales', s: ['到「整理中場次」，找到你的攤位按「填寫我的攤位」。', '同一張表裡，作品類型可同時點選「原創」「二創」，商品年齡分類可同時點選「一般」「R15」「R18」。', '「二創參考作品」只有選了「二創」才會出現；沒選就不會送出，你以前填過的內容會留著。', '單品按「＋單品」：左邊填類別，右邊填內容。', '系統會自動寫成「💠類別【內容】」，例如「💠新刊【畫冊 Vol.2 NT$300】」。', '有套組時按「＋套組」：填套組名稱，再逐一加商品，系統自動編號成「💠套組名稱」「1. 商品名」「2. 商品名」。', '用「↑」「↓」調整順序、「×」刪除，確認下面的文字後按送出。'] },
       { id: 'status', t: '查看審核狀態', img: 'zh-status', s: ['打開「我的攤位」。', '「待審核的認領」：還在等站長確認。點它可以再看一次驗證碼。', '「我管理的攤主」：已經通過，可以修改資料。', '送出修改後，畫面會告訴你幾項已生效、幾項在等審核。通過後攤主頁就會更新。'] }
     ],
     faq: [
@@ -17,6 +18,7 @@ window.HELP = {
       ['驗證貼文可以刪嗎？', '站長確認通過後就可以刪。'],
       ['沒有 SNS 帳號怎麼辦？', '選「私訊粉專或 LINE」或「Discord」，不需要貼文網址。'],
       ['為什麼我的修改還沒出現？', '可能在等站長審核，或網頁還沒更新。請稍等幾分鐘再重新整理。'],
+      ['剛隱藏舊攤名，別人還搜得到？', '剛隱藏時，網站可能要等一陣子才會完全更新。最多大約一小時後，別人就搜不到了。'],
       ['資料有錯但我不是攤主？', '在攤主頁按「回報關聯錯誤」，或私訊加帕利天藍怪預警中心粉專。']
     ]
   },
@@ -26,9 +28,10 @@ window.HELP = {
       { id: 'search', t: 'Find your booth', img: 'en-search', s: ['Open the home page.', 'Type a booth name, pen name or SNS account in the search box at the top.', 'Tap a result card to open the owner page.'] },
       { id: 'claim', t: 'Claim your booth: get a code, pick a method', img: 'en-claim', s: ['Tap "My booth" at the top and sign in with Google.', 'Go back to your owner page and tap "This is me → claim".', 'You will see your verification code (e.g. JP-AB12CD). Tap "Copy" to copy it.', 'Pick one method: ① SNS post — post the code from an SNS account listed on your booth, then paste the link to that post. ② Message the 加帕利天藍怪預警中心 (Japari Weather Bureau) Facebook page or LINE official account with the code. ③ 動漫同人展資訊組 (Doujin Event Info) Discord — pick the 「社團攤主」 (booth owner) role → scroll to 「管理事務區」 (admin area) → open the 「攤位整理系統後台 攤主權限申請」 channel, tell an admin and paste the code.', 'Tap "Submit request".'] },
       { id: 'contact', t: 'After you submit: contact the Japari editor', img: 'en-claim-done', s: ['The screen shows "Request sent" and your code.', '⚠ Important: please contact the 加帕利 (Japari) editor as soon as possible so we can verify you quickly.', 'Send us the code using the method you picked (Facebook, LINE or Discord).', 'Once an admin approves, the booth appears under "My booth".'] },
-      { id: 'edit', t: 'Edit my booth info', img: 'en-edit', s: ['Go to "My booth" and tap "Edit master data" on your booth.', 'Change only the boxes you need.', 'Tap "Preview changes", check it, then tap "Confirm & submit".', 'Normal fields may update right away. Changing your main SNS account or booth name waits for an admin.'] },
+      { id: 'edit', t: 'Edit my booth info', img: 'en-edit', s: ['Go to "My booth" and tap "Edit master data" on your booth.', 'Change only the boxes you need (booth name, pen name, SNS, and so on). To change work type or age rating, go to "Ongoing events" and tap "Fill in my booth".', 'Tap "Preview changes", check it, then tap "Confirm & submit".', 'Normal fields may update right away. Changing your main SNS account or booth name waits for an admin.'] },
+      { id: 'names', t: 'Hide past booth names', img: 'en-names', s: ['Open your owner page. Past booth names are public by default.', 'If you do not want others to see or search them, tap "🙈 Hide past names". It takes effect immediately — no review needed.', 'After that, visitors and search will not see the old names. You and the admins still can. Your current booth name stays visible.', 'To show them again, tap "👁 Show past names". Right after hiding, the site may take a little while to fully update — up to about an hour.'] },
       { id: 'thumb', t: 'Add a booth thumbnail (Google Drive link)', img: 'en-thumb', s: ['Upload the image to Google Drive.', 'Tap "Share" on the image and set General access to "Anyone with the link".', 'Copy the link and paste it into the "Thumbnail" box.', 'Tap "Check if public". Only ✅ means others can see it.'] },
-      { id: 'sales', t: 'Fill in sales info', img: 'en-sales', s: ['Go to "Ongoing events", find your booth and tap "Fill in my booth".', 'Single item: tap "＋ Single item", category on the left, details on the right.', 'It is saved as "💠Category【Details】", e.g. "💠新刊【Art book Vol.2 NT$300】".', 'For a set, tap "＋ Bundle": enter the bundle name, then add items; they are numbered automatically ("💠Bundle name", "1. Item", "2. Item").', 'Use ↑ ↓ to reorder and × to delete, check the text below, then submit.'] },
+      { id: 'sales', t: 'Fill in sales info', img: 'en-sales', s: ['Go to "Ongoing events", find your booth and tap "Fill in my booth".', 'On the same form, for 作品類型 tap Original and/or Fan work; for 商品年齡分類 tap All ages, R15 and/or R18. You can select more than one.', '「二創參考作品」only appears when Fan work is selected. If it is hidden, it is not submitted; anything already saved stays as it is.', 'Single item: tap "＋ Single item", category on the left, details on the right.', 'It is saved as "💠Category【Details】", e.g. "💠新刊【Art book Vol.2 NT$300】".', 'For a set, tap "＋ Bundle": enter the bundle name, then add items; they are numbered automatically ("💠Bundle name", "1. Item", "2. Item").', 'Use ↑ ↓ to reorder and × to delete, check the text below, then submit.'] },
       { id: 'status', t: 'Check review status', img: 'en-status', s: ['Open "My booth".', '"Pending claims": still waiting for an admin. Tap it to see your code again.', '"Owners I manage": approved — you can edit.', 'After you submit edits, the page tells you how many went live and how many wait for review. The owner page updates once approved.'] }
     ],
     faq: [
@@ -37,6 +40,7 @@ window.HELP = {
       ['Can I delete the verification post?', 'Yes, after an admin has approved your claim.'],
       ['I don\'t have an SNS account?', 'Choose "Facebook page / LINE" or "Discord" — no post link needed.'],
       ['Why don\'t I see my change yet?', 'It may be waiting for review, or the page has not refreshed. Wait a few minutes and reload.'],
+      ['I hid my old booth name, but people can still search it?', 'Right after you hide it, the site may take a little while to fully update. Within about an hour, others will not be able to search it.'],
       ['Something is wrong but I am not the owner?', 'Tap "Report wrong grouping" on the owner page, or message the 加帕利天藍怪預警中心 Facebook page.']
     ]
   },
@@ -46,9 +50,10 @@ window.HELP = {
       { id: 'search', t: '自分のブースを探す', img: 'ja-search', s: ['ホームを開きます。', '上の検索欄にサークル名・ペンネーム・SNS アカウントを入力します。', '結果のカードを押すと出展者ページが開きます。'] },
       { id: 'claim', t: 'ブースを申請：コードを受け取り、方法を選ぶ', img: 'ja-claim', s: ['上の「マイブース」から Google でログインします。', '自分の出展者ページに戻り、「自分です → 申請」を押します。', '確認コード（例：JP-AB12CD）が表示されます。「コピー」で写せます。', '方法を 1 つ選びます：① SNS 投稿：ブース情報にある SNS アカウントでコードを投稿し、その投稿の URL を貼る。② 加帕利天藍怪預警中心の Facebook ページか LINE 公式アカウントにコードを DM。③ 動漫同人展資訊組（同人イベント情報グループ）の Discord：「社團攤主」ロールを選ぶ →「管理事務區」までスクロール →「攤位整理系統後台 攤主權限申請」チャンネルで管理者に伝え、コードを貼る。', '「申請を送信」を押します。'] },
       { id: 'contact', t: '送信後：加帕利の編集担当に連絡', img: 'ja-claim-done', s: ['画面に「申請しました」と確認コードが表示されます。', '⚠ 申請後は、できるだけ早く加帕利（ジャパリ）の編集担当にご連絡ください。すぐに確認いたします。', '選んだ方法（Facebook・LINE・Discord）でコードを送ってください。', '管理者が承認すると、「マイブース」にブースが表示されます。'] },
-      { id: 'edit', t: 'ブース情報を修正する', img: 'ja-edit', s: ['「マイブース」で自分のブースの「マスターデータの編集」を押します。', '変えたい欄だけ書き換えます。', '「変更をプレビュー」で確認し、「確認して送信」を押します。', '一般の欄はすぐ反映されることがあります。メインの SNS アカウントやサークル名の変更は管理者の確認待ちになります。'] },
+      { id: 'edit', t: 'ブース情報を修正する', img: 'ja-edit', s: ['「マイブース」で自分のブースの「マスターデータの編集」を押します。', '変えたい欄だけ書き換えます（サークル名・ペンネーム・SNS など）。作品類型や年齢分類は「整理中のイベント」の「自分のブースを入力」から変更します。', '「変更をプレビュー」で確認し、「確認して送信」を押します。', '一般の欄はすぐ反映されることがあります。メインの SNS アカウントやサークル名の変更は管理者の確認待ちになります。'] },
+      { id: 'names', t: '過去のブース名を隠す', img: 'ja-names', s: ['自分の出展者ページを開きます。過去のブース名は、初期状態では公開されています。', '他の人に見せたくない、検索されたくないときは「🙈 過去のブース名を隠す」を押します。すぐに反映され、審査は不要です。', '隠したあと、一般の閲覧者や検索には表示されません。あなたと管理者は引き続き見られます。いま使っているブース名はそのままです。', '再び公開したいときは「👁 過去のブース名を公開」を押します。隠した直後は、サイトの表示が完全に更新されるまで少し時間がかかることがあります（最大およそ 1 時間）。'] },
       { id: 'thumb', t: 'サムネイルを登録する（Google ドライブのリンク）', img: 'ja-thumb', s: ['画像を Google ドライブにアップロードします。', '画像の「共有」で一般的なアクセスを「リンクを知っている全員」にします。', 'リンクをコピーして「サムネイル」欄に貼ります。', '「公開状態を確認」を押します。✅ が出れば他の人にも見えます。'] },
-      { id: 'sales', t: '頒布情報を入力する', img: 'ja-sales', s: ['「整理中のイベント」で自分のブースの「自分のブースを入力」を押します。', '単品は「＋ 単品」：左にカテゴリ、右に内容を書きます。', '「💠カテゴリ【内容】」の形で保存されます。例：「💠新刊【画集 Vol.2 NT$300】」。', 'セットは「＋ セット」：セット名を入れて商品を追加すると、自動で番号が付きます（「💠セット名」「1. 商品名」「2. 商品名」）。', '↑ ↓ で並べ替え、× で削除。下の文字を確認して送信します。'] },
+      { id: 'sales', t: '頒布情報を入力する', img: 'ja-sales', s: ['「整理中のイベント」で自分のブースの「自分のブースを入力」を押します。', '同じフォームで、「作品類型」は「オリジナル」「二次創作」を同時に選べます。「商品年齡分類」は「全年齢」「R15」「R18」を同時に選べます。', '「二創參考作品」は「二次創作」を選んだときだけ表示されます。表示されていないときは送信されず、以前書いた内容はそのまま残ります。', '単品は「＋ 単品」：左にカテゴリ、右に内容を書きます。', '「💠カテゴリ【内容】」の形で保存されます。例：「💠新刊【画集 Vol.2 NT$300】」。', 'セットは「＋ セット」：セット名を入れて商品を追加すると、自動で番号が付きます（「💠セット名」「1. 商品名」「2. 商品名」）。', '↑ ↓ で並べ替え、× で削除。下の文字を確認して送信します。'] },
       { id: 'status', t: '審査の状況を見る', img: 'ja-status', s: ['「マイブース」を開きます。', '「審査中の申請」：管理者の確認待ちです。押すとコードをもう一度見られます。', '「管理している出展者」：承認済みで、修正できます。', '修正を送ると、すぐ反映された数と審査待ちの数が表示されます。承認後に出展者ページが更新されます。'] }
     ],
     faq: [
@@ -57,6 +62,7 @@ window.HELP = {
       ['確認用の投稿は消してもいいですか？', '管理者が承認した後なら消して大丈夫です。'],
       ['SNS アカウントがありません', '「Facebook ページ／LINE」か「Discord」を選べば、投稿の URL は不要です。'],
       ['修正がまだ表示されません', '審査待ちか、ページがまだ更新されていない可能性があります。数分待ってから再読み込みしてください。'],
+      ['過去のブース名を隠したのに、まだ検索されます', '隠した直後は、サイトの表示が完全に更新されるまで少し時間がかかることがあります。およそ 1 時間以内には、他の人は検索できなくなります。'],
       ['出展者ではないけど情報が間違っています', '出展者ページの「関連の誤りを報告」を押すか、加帕利天藍怪預警中心の Facebook ページに連絡してください。']
     ]
   }
@@ -65,7 +71,7 @@ window.ADMIN_HELP = {
   title: '站長使用說明', intro: '每件事只要幾步。不確定時，先不要按，問擁有者站長。',
   tasks: [
     { id: 'pair', t: '新增站長（配對碼）', img: 'admin-pair', s: ['新站長在網站登入，到「我的攤位」按「取得站長配對碼」。', '把配對碼給試算表擁有者（10 分鐘內有效）。', '擁有者在試算表選單「🗂 攤位資料庫網站 › 👑 新增站長帳號」輸入配對碼。', '新站長重新整理網頁，就會看到「站長後台」。'] },
-    { id: 'queue', t: '審核待審核', img: 'admin-queue', s: ['打開「📥 待審核」。', '看每筆的舊值、新值和風險說明；連結先看預覽再點。', '販售資訊可能有套組（💠套組名稱，下面 1. 2. 編號商品），格式不對系統會先擋下。', '認領會標示驗證方式：🔗 SNS 貼文（打開貼文確認驗證碼）、💬 私訊粉專／LINE、🎮 Discord（到對應的訊息或頻道核對驗證碼）。', '沒問題按「✅ 核准」，有問題按「✖ 拒絕」並寫原因。', '可以勾選多筆一起處理（需 10 分鐘內登入）。'] },
+    { id: 'queue', t: '審核待審核', img: 'admin-queue', s: ['登入後，右上「站長後台」會顯示待審核數量，左邊各分頁也有數字，不用點進去才知道。', '後台上方可按「🔄 重新整理」，也可勾選「自動更新（每分鐘）」。離開這個分頁或把視窗縮小後會暫停。', '有新項目、而你正在勾選或填寫時，畫面不會自動換掉，會出現「🔔 有新的待審核項目」橫幅，點一下再更新。', '打開「📥 待審核」。', '看每筆的舊值、新值和風險說明；連結先看預覽再點。', '販售資訊可能有套組（💠套組名稱，下面 1. 2. 編號商品），格式不對系統會先擋下。', '認領會標示驗證方式：🔗 SNS 貼文（打開貼文確認驗證碼）、💬 私訊粉專／LINE、🎮 Discord（到對應的訊息或頻道核對驗證碼）。', '沒問題按「✅ 核准」，有問題按「✖ 拒絕」並寫原因。', '可以勾選多筆一起處理（需 10 分鐘內登入）。'] },
     { id: 'second', t: '第二位站長確認', img: 'admin-second', s: ['身分欄位（攤位名稱、SNS／網址欄位被換掉或清空）要兩位不同站長核准。', '第一位按「🔐 二次驗證（一審）」並寫確認方式，狀態變「待第二位確認」。', '另一位站長在待審核最上面按「🔐 第二位確認並套用」。', '只有 1 位站長時，擁有者站長要填理由才能覆核。'] },
     { id: 'relogin', t: '重新登入', img: 'admin-relogin', s: ['重要操作（批次核准、身分欄位、合併、匯入、停權）要在 10 分鐘內登入過。', '跳出 Google 登入視窗時，選你的站長帳號。', '登入完成後，剛剛的操作會自動再做一次。'] },
     { id: 'revert', t: '復原修改', img: 'admin-revert', s: ['打開「🧾 稽核紀錄」。', '找到要撤回的那筆，按「↩️ 復原」（一整批的話按「↩️ 整批復原」）。', '系統會把格子改回舊值，並留下紀錄。'] },
@@ -77,6 +83,9 @@ window.ADMIN_HELP = {
   faq: [
     ['兩位站長同時按同一筆會怎樣？', '只會套用一次，後按的人會看到「已由 X 處理」。'],
     ['按錯核准了？', '到「🧾 稽核紀錄」按「↩️ 復原」。'],
+    ['按鈕上的數字是什麼？', '待審核和關聯判定加起來的數量。各分頁左邊也有各自的數字。'],
+    ['自動更新沒換畫面？', '正在勾選或填寫時不會自動換頁。看有沒有「🔔 有新的待審核項目」橫幅，點它或按「重新整理」即可。'],
+    ['攤主要隱藏舊攤名？', '攤主在自己的攤主頁就可以關，立刻生效、不用審核。你也可以在攤主頁代為開關，會記在稽核紀錄。'],
     ['網站後台被盜用怎麼辦？', '擁有者在指令碼屬性設 ADMIN_WEB_DISABLED=1，網站後台會全部停用。']
   ]
 };

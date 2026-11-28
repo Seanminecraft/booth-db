@@ -50,10 +50,20 @@ window.viewAdmin = function (C, parts) {
   }
   if (window.__admL) window.removeEventListener('bdb-adm', window.__admL); window.__admL = onAdm; window.addEventListener('bdb-adm', onAdm);
 
-  call({ action: 'admin.home', tab: ACT[tab] ? tab : '', fresh: FRESH }).then(function (res) {
+  function loadHome() {
+    return call({ action: 'admin.home', tab: ACT[tab] ? tab : '', fresh: FRESH }).catch(function (e) {
+      if (!/unknown admin action/.test(e.message)) throw e;
+      return call({ action: 'admin.summary' }).then(function (sum) {
+        var p = ACT[tab] ? call({ action: ACT[tab], fresh: FRESH }) : Promise.resolve(null);
+        return p.then(function (tabData) { return { summary: sum, tabKey: ACT[tab] ? tab : '', tabData: tabData, legacy: true }; });
+      });
+    });
+  }
+  loadHome().then(function (res) {
     var sum = res.summary; if (res.tabKey) PRE[res.tabKey] = res.tabData;
     C.admPush(sum); shownSig = sig(sum); var ns = sideNode(sum); side.parentNode.replaceChild(ns, side); side = ns; paint(C.admState());
     ph.remove();
+    if (res.legacy) add(main, h('div', { class: 'card note warn', text: '後端還沒換成這個版本：右上數字和自動更新暫時無法使用，請先按「重新整理」。隱藏舊攤名也還不能用。請到試算表把後端更新後再重新整理這個網頁。' }));
     if (sum.needsMySecond) add(main, h('div', { class: 'card note warn' }, '🔐 有 ', h('b', { text: sum.needsMySecond }), ' 筆身分欄位等你做第二位確認（在「待審核」最上面）。'));
     var HID = { queue: 'queue', events: 'event', relations: 'merge', owners: 'suspend', audit: 'revert', settings: 'editors' }[tab];
     if (HID) add(main, h('div', { class: 'muted', style: 'text-align:right;margin:-4px 0 8px;font-size:13px' }, h('a', { href: '#/admin/help/' + HID, text: '這一頁怎麼用' }), ' ', window.BOOTH_HELP.q(HID, true)));

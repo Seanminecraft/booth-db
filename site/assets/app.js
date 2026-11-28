@@ -322,6 +322,9 @@
   }
 
   /* ---------- 登入 ---------- */
+  function hasP7() { return !!((S.meta && S.meta.version && S.meta.version >= '2026-11-28-p7') || S.p7); }
+  function markP7(ok) { if (ok) S.p7 = true; else if (ok === false) S.p7 = false; }
+  function isLegacyErr(e) { return /unknown action|unknown admin action/.test((e && e.message) || ''); }
   /* ---------- 站長：後台按鈕數字（p7）：每 60 秒輪詢 admin.counts（頁面隱藏時暫停），只讀幾個狀態欄，很輕量 ---------- */
   var ADM_T = null;
   function admPaint() {
@@ -332,7 +335,8 @@
   function admPush(sum) { if (!sum || !sum.counts) return; S.adm = { counts: sum.counts, total: sum.total, needsMySecond: sum.needsMySecond, at: sum.at, fetchedAt: Date.now() }; admPaint(); }
   function admPoll() {
     if (!S.session || !S.me || !S.me.admin) return Promise.resolve();
-    return apiPost({ action: 'admin.counts' }).then(function (j) { admPush(j.data); window.dispatchEvent(new Event('bdb-adm')); }).catch(function (e) {
+    return apiPost({ action: 'admin.counts' }).then(function (j) { markP7(true); admPush(j.data); window.dispatchEvent(new Event('bdb-adm')); }).catch(function (e) {
+      if (isLegacyErr(e)) { markP7(false); if (ADM_T) { clearInterval(ADM_T); ADM_T = null; } admPaint(); return; }
       S.adm = Object.assign({ counts: {}, total: 0 }, S.adm || {}, { error: /^REAUTH/.test(e.message) ? 'reauth' : 'net' }); admPaint(); window.dispatchEvent(new Event('bdb-adm')); });
   }
   function admStart() { if (ADM_T) return; admPoll(); ADM_T = setInterval(function () { if (!document.hidden) admPoll(); }, 60000);
@@ -572,19 +576,27 @@
     return box;
   }
   /** 「使用過的攤名」開關（p7）：攤主自己切換立即生效、不需審核（只是改變誰看得到，不改資料）；站長也可代為切換（會記在站長操作紀錄）。 */
+  /** 後端還是舊版時改讀公開的 owner（沒有完整舊攤名也沒有隱藏開關資料）。 */
+  function loadOwnerFull(id) {
+    return apiPost({ action: 'ownerFull', ownerId: id }).then(function (j) { markP7(true); return j.data; }).catch(function (e) {
+      if (!isLegacyErr(e)) throw e; markP7(false); return apiGet({ action: 'owner', id: id });
+    });
+  }
   function nameVisBox(id, hiddenNow, byOwner) {
-    var T = byOwner ? t : tz, msg = h('span', { class: 'muted' }), btn = h('button', { class: 'btn ghost', type: 'button', text: hiddenNow ? T('names_show_btn') : T('names_hide_btn') });
+    var T = byOwner ? t : tz;
+    if (S.p7 === false || (S.meta && S.meta.version && !hasP7())) return h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, '🙈 ', T('names_need_backend'), ' ', helpQ('names', !byOwner));
+    var msg = h('span', { class: 'muted' }), btn = h('button', { class: 'btn ghost', type: 'button', text: hiddenNow ? T('names_show_btn') : T('names_hide_btn') });
     btn.addEventListener('click', function () {
       btn.disabled = true; var want = !hiddenNow;
       (byOwner ? apiPost({ action: 'nameVis', ownerId: id, hidden: want }) : adminCall({ action: 'admin.setNameVis', ownerId: id, hidden: want })).then(function () {
         toast(want ? T('names_hide_done') : T('names_show_done')); S.index = null; sessionStorage.removeItem('bdb_index'); OWNER_P = {};
         return apiGet({ action: 'index' }).then(function (d) { setIndex(d); storeIndex(d); }).catch(function () { }).then(function () { route(); });
-      }).catch(function (e) { btn.disabled = false; msg.textContent = e.message; });
+      }).catch(function (e) { btn.disabled = false; msg.textContent = isLegacyErr(e) ? T('names_need_backend') : e.message; });
     });
-    return h('div', { class: 'nvbox' }, h('div', { class: 'muted', style: 'font-size:12.5px' }, hiddenNow ? '🙈 ' + (byOwner ? T('names_hidden_mine') : '此攤主已隱藏舊攤名（公開頁看不到；站長可見）。') : '👁 ' + (byOwner ? T('names_shown_mine') : '此攤主的舊攤名目前公開。')), h('div', { class: 'acts', style: 'justify-content:flex-start;margin-top:6px' }, btn, msg));
+    return h('div', { class: 'nvbox' }, h('div', { class: 'muted', style: 'font-size:12.5px' }, hiddenNow ? '🙈 ' + (byOwner ? T('names_hidden_mine') : '此攤主已隱藏舊攤名（公開頁看不到；站長可見）。') : '👁 ' + (byOwner ? T('names_shown_mine') : '此攤主的舊攤名目前公開。')), h('div', { class: 'acts', style: 'justify-content:flex-start;margin-top:6px' }, btn, helpQ('names', !byOwner), msg));
   }
   function editFlow(id) {
-    apiPost({ action: 'ownerFull', ownerId: id }).then(function (j) { return j.data; }).then(function (d) {
+    loadOwnerFull(id).then(function (d) {
       var rows = d.dbRows.slice(), isNew = !rows.length;
       // 只有出展紀錄、主資料庫還沒有列的攤主：以最近一屆攤名建立「新列」表單，核准後伺服器才新增資料列
       if (isNew) { var last = d.history.length ? d.history[d.history.length - 1].name : ''; rows = [{ row: 0, fields: { '攤位名稱': last } }]; }
@@ -609,7 +621,7 @@
   function adminCall(body) { return apiPost(body).catch(function (e) { if (/^REAUTH:/.test(e.message)) return reauth(e.message.replace(/^REAUTH:/, '')).then(function () { return apiPost(body); }); throw e; }); }
   function adminNote() { return h('div', { class: 'note admx', text: '🛠 站長直接修改：一般欄位按下確認後立即寫入（不進審核佇列），驗證規則與攤主相同；每一格都記錄在「站長操作紀錄」，可在後台稽核紀錄復原。身分欄位在有 2 位以上站長時會進入「待第二位確認」。' }); }
   function adminEditFlow(id) {
-    adminCall({ action: 'ownerFull', ownerId: id }).then(function (j) { return j.data; }).then(function (d) {
+    loadOwnerFull(id).then(function (d) {
       var rows = d.dbRows.slice(), isNew = !rows.length;
       if (isNew) { var last = d.history.length ? d.history[d.history.length - 1].name : ''; rows = [{ row: 0, fields: { '攤位名稱': last } }]; }
       var sel = h('select', { class: 'in' }, rows.map(function (r, i) { return h('option', { value: i, text: (r.fields['攤位名稱'] || ('#' + r.row)) + (r.row ? '（第 ' + r.row + ' 列）' : '（新列）') }); })), holder = h('div');
